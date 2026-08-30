@@ -68,6 +68,7 @@ model User {
   escalationsRuled     Escalation[]         @relation("EscalationDean")
   roleAssignments      UserRole[]
   passwordResetTokens  PasswordResetToken[]
+  rosterImports        RosterImport[]
 
   @@map("users")
 }
@@ -160,23 +161,63 @@ enum SemesterType {
   SUMMER
 }
 
+enum SemesterStatus {
+  UPCOMING
+  OPEN
+  CLOSED
+}
+
+/// `sequenceNumber` is the chronological order — assigned explicitly at
+/// creation (MASTER_PROMPT.md §2.6's "open/close semesters" mechanism is
+/// specified, not inferred from date ranges) rather than derived from
+/// `type`+`year`, which would bake in one academic-calendar convention
+/// and silently break on an out-of-order creation. `status` is how "the
+/// current semester" is known: exactly one row may be `OPEN` at a time,
+/// enforced by a partial unique index appended in raw SQL (same
+/// mechanism as M01's cases_one_nonterminal_per_student). BR-01/BR-04
+/// eligibility math (src/server/roster/eligibility.ts) counts `CLOSED`
+/// semesters at or after a student's admission semester by
+/// `sequenceNumber` — see docs/modules/M03.md.
 model Semester {
-  id               String       @id @default(uuid(7)) @db.Uuid
+  id               String         @id @default(uuid(7)) @db.Uuid
   type             SemesterType
   year             Int
-  startsOn         DateTime     @map("starts_on") @db.Date
-  endsOn           DateTime     @map("ends_on") @db.Date
+  sequenceNumber   Int            @unique @map("sequence_number")
+  status           SemesterStatus @default(UPCOMING)
+  startsOn         DateTime       @map("starts_on") @db.Date
+  endsOn           DateTime       @map("ends_on") @db.Date
   // TODO(OQ-01): exact per-semester document submission deadline dates are
-  // unanswered. Nullable until M03 populates it per semester; a case
+  // unanswered. Nullable until an admin sets it per semester; a case
   // missing deliverables at an unset deadline is never auto-flagged by a
-  // null value — M03's deadline-sweep job must treat null as "no deadline
-  // configured yet", not "no deadline ever".
-  documentDeadline DateTime?    @map("document_deadline") @db.Date
+  // null value — a future deadline-sweep job (M07/M09) must treat null as
+  // "no deadline configured yet", not "no deadline ever".
+  documentDeadline DateTime?      @map("document_deadline") @db.Date
 
   students Student[]
 
   @@unique([type, year])
   @@map("semesters")
+}
+
+/// M03: one row per roster CSV import, so "what happened in Tuesday's
+/// import" is a direct query instead of reconstructed from generic
+/// audit_events rows. `errors` holds per-row problems (a bad row is
+/// reported, not thrown — see docs/modules/M03.md's test list) without
+/// aborting the rest of the file.
+model RosterImport {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  importedBy   String   @map("imported_by") @db.Uuid
+  filename     String
+  totalRows    Int      @map("total_rows")
+  createdCount Int      @map("created_count")
+  updatedCount Int      @map("updated_count")
+  errorCount   Int      @map("error_count")
+  errors       Json
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  importer User @relation(fields: [importedBy], references: [id])
+
+  @@map("roster_imports")
 }
 
 // ---------------------------------------------------------------------
@@ -243,6 +284,11 @@ model Case {
   plannedEnd     DateTime? @map("planned_end") @db.Date
   actualStart    DateTime? @map("actual_start") @db.Date
   actualEnd      DateTime? @map("actual_end") @db.Date
+  // M03/BR-02: true only for a case created by the semester-6
+  // auto-enrollment sweep (src/server/roster/auto-enrollment-sweep.ts),
+  // never set any other way — lets M13's dashboard query "all
+  // auto-enrolled cases" directly instead of parsing audit metadata.
+  autoEnrolled   Boolean   @default(false) @map("auto_enrolled")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 

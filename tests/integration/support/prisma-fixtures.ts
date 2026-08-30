@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/server/db/client";
-import type { RoleName } from "@prisma/client";
+import type { RoleName, SemesterStatus, SemesterType } from "@prisma/client";
 
 /**
  * Fixture builders using the app's own Prisma client (the scit_app
@@ -16,26 +16,62 @@ export async function createUserFixture(overrides: { email?: string } = {}) {
   });
 }
 
-export async function createSemesterFixture() {
-  const year = 2100 + Math.floor(Math.random() * 100000);
+export async function createSemesterFixture(
+  overrides: {
+    type?: SemesterType;
+    year?: number;
+    sequenceNumber?: number;
+    status?: SemesterStatus;
+  } = {},
+) {
+  const year = overrides.year ?? 2100 + Math.floor(Math.random() * 100000);
+  const sequenceNumber =
+    overrides.sequenceNumber ?? 100_000 + Math.floor(Math.random() * 900_000);
   return prisma.semester.create({
     data: {
-      type: "FALL",
+      type: overrides.type ?? "FALL",
       year,
+      sequenceNumber,
+      status: overrides.status ?? "UPCOMING",
       startsOn: new Date("2024-09-01"),
       endsOn: new Date("2024-12-31"),
     },
   });
 }
 
-export async function createStudentFixture(overrides: { userId?: string } = {}) {
+/**
+ * Creates `count` consecutive CLOSED semesters (sequence numbers
+ * `startSequence`, `startSequence + 1`, ...) — the shape
+ * BR02_auto_enrollment_sweep.test.ts and eligibility tests need to put a
+ * student a specific number of completed semesters past admission.
+ */
+export async function createClosedSemesterChain(
+  count: number,
+  startSequence: number,
+) {
+  const semesters = [];
+  for (let i = 0; i < count; i++) {
+    semesters.push(
+      await createSemesterFixture({
+        sequenceNumber: startSequence + i,
+        status: "CLOSED",
+      }),
+    );
+  }
+  return semesters;
+}
+
+export async function createStudentFixture(
+  overrides: { userId?: string; admissionSemesterId?: string } = {},
+) {
   const userId = overrides.userId ?? (await createUserFixture()).id;
-  const semester = await createSemesterFixture();
+  const admissionSemesterId =
+    overrides.admissionSemesterId ?? (await createSemesterFixture()).id;
   return prisma.student.create({
     data: {
       userId,
       registrationNumber: `TEST-${randomUUID()}`,
-      admissionSemesterId: semester.id,
+      admissionSemesterId,
       programme: "BS Computer Science",
     },
   });

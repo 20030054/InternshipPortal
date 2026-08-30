@@ -16,6 +16,7 @@ in the code at the point it matters.
 | OQ-08 | Should students see supervisor evaluation comments? | M08 | HoD | Open |
 | OQ-09 | Does a waiver appear on the transcript differently from a pass? | M11 | Registrar | Open |
 | OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
+| OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04 | Focal Person / whoever designed the process | Open — restrictive default applied |
 
 ## Resolution log
 
@@ -31,3 +32,18 @@ real answer from the HoD before assuming this is settled; if BNU ever
 extends the deployment, adding the column later is a normal migration
 (nullable, backfilled, then constrained), not a rewrite, because entity
 boundaries were kept clean of implicit cross-cutting lookups.
+
+### OQ-11 — restrictive default applied in M03
+
+M03 never auto-creates a `Case` for the normal 4-semester eligibility
+path — eligibility is a pure computed value (`computeEligibility()`),
+and a case only comes into existence via student action (M05, not built
+yet) or BR-02's semester-6 fallback sweep (M03, which does create a case
+directly, since BR-02's text is explicit and unambiguous where OQ-6 and
+the general case-genesis question are not). See `docs/modules/M03.md`
+"Scope decisions" for the full reasoning. M04, which owns the actual
+state machine and transition table, should confirm or correct this
+reading once it exists — if it turns out every student *should* get an
+`ELIGIBILITY_PENDING` case at admission, that's an additive change (a
+sweep that creates dormant cases early), not a rewrite of what M03
+already built.

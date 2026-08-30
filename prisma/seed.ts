@@ -1,6 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { PrismaClient, type RoleName, type SemesterType } from "@prisma/client";
+import {
+  PrismaClient,
+  type RoleName,
+  type SemesterStatus,
+  type SemesterType,
+} from "@prisma/client";
 // Relative, not the "@/*" alias — this file runs directly under tsx from
 // outside src/, and a relative path doesn't depend on tsx's tsconfig-paths
 // resolution working the same way it does under Next's bundler.
@@ -26,15 +31,26 @@ type SemesterFixture = {
   key: string;
   type: SemesterType;
   year: number;
+  sequenceNumber: number;
+  status: SemesterStatus;
   startsOn: string;
   endsOn: string;
 };
 
+// M03: sequenceNumber/status are now required columns (see
+// docs/modules/M03.md). fall2024 is CLOSED and spring2025 is OPEN — a
+// minimal but valid "current semester" baseline. This alone isn't enough
+// closed history to make any seeded student eligible (BR-01 needs 4
+// closed semesters since admission); the eligibility computation itself
+// is covered by dedicated fixtures in tests/unit/eligibility.test.ts,
+// not by trying to manufacture an "eligible" example here.
 const SEMESTERS: SemesterFixture[] = [
   {
     key: "fall2024",
     type: "FALL",
     year: 2024,
+    sequenceNumber: 1,
+    status: "CLOSED",
     startsOn: "2024-09-01",
     endsOn: "2024-12-31",
   },
@@ -42,6 +58,8 @@ const SEMESTERS: SemesterFixture[] = [
     key: "spring2025",
     type: "SPRING",
     year: 2025,
+    sequenceNumber: 2,
+    status: "OPEN",
     startsOn: "2025-01-15",
     endsOn: "2025-05-31",
   },
@@ -146,6 +164,8 @@ export async function main() {
       create: {
         type: s.type,
         year: s.year,
+        sequenceNumber: s.sequenceNumber,
+        status: s.status,
         startsOn: new Date(s.startsOn),
         endsOn: new Date(s.endsOn),
       },

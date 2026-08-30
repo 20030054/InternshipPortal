@@ -22,13 +22,18 @@ export async function createUser(db: Client): Promise<string> {
 
 export async function createSemester(db: Client): Promise<string> {
   const id = randomUUID();
-  // A random year keeps the (type, year) unique constraint from colliding
-  // across test runs/files without needing a shared counter.
+  // Random year and sequence_number keep their respective unique
+  // constraints from colliding across test runs/files without needing a
+  // shared counter. status defaults to UPCOMING (the column default) —
+  // these fixtures predate M03's open/close mechanism and don't need it.
   const year = 2100 + Math.floor(Math.random() * 100000);
+  // Disjoint range from prisma-fixtures.ts's createSemesterFixture
+  // (100,000-999,999) so the two fixture systems can never collide.
+  const sequenceNumber = 10_000_000 + Math.floor(Math.random() * 10_000_000);
   await db.query(
-    `INSERT INTO semesters (id, type, year, starts_on, ends_on)
-     VALUES ($1, 'FALL', $2, '2024-09-01', '2024-12-31')`,
-    [id, year],
+    `INSERT INTO semesters (id, type, year, sequence_number, starts_on, ends_on)
+     VALUES ($1, 'FALL', $2, $3, '2024-09-01', '2024-12-31')`,
+    [id, year, sequenceNumber],
   );
   return id;
 }

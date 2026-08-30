@@ -319,3 +319,118 @@ defaults with no policy content — nobody at SCIT has an opinion on
 argon2 password length the way they have one on the restart cap. Treating
 them as open questions would just be a way of not deciding something that
 was always the implementer's call.
+
+---
+
+### D-019 — 2026-08-30 — Semester ordering is an explicit `sequenceNumber`, not type+year arithmetic
+
+**Decision:** `semesters.sequence_number` is an admin-assigned integer,
+unique across the table, set explicitly at semester creation (defaulting
+to `MAX(sequence_number) + 1` if not given). BR-01/BR-04 eligibility math
+counts `CLOSED` semesters by this number, never by comparing `type` and
+`year`.
+
+**Why:** Deriving chronological order from `type`+`year` requires baking
+in one academic-calendar convention (e.g., "Fall precedes the following
+Spring precedes the following Summer") that might not match BNU's actual
+one, and breaks silently if a semester is ever created out of that
+assumed order. An explicit, human-assigned sequence removes the
+guesswork entirely — the registrar states the order, the system never
+infers it.
+
+---
+
+### D-020 — 2026-08-30 — "Current semester" is admin open/close, not date-range inference
+
+**Decision:** `semesters.status` (`UPCOMING`/`OPEN`/`CLOSED`) is set only
+by explicit admin action (`POST /api/admin/semesters/:id/open` /
+`.../close`), never inferred by comparing today's date to
+`[startsOn, endsOn]`. A partial unique index enforces at most one `OPEN`
+row at a time.
+
+**Why:** Not a judgement call — `MASTER_PROMPT.md` §2.6 names "open/close
+semesters" as a specific Admin capability, so the mechanism is specified,
+not invented. It's also more robust in practice: a semester's real start
+often slips a few days from its planned date, and inferring "current" from
+a stale date range would silently misclassify eligibility right at the
+boundary that matters most.
+
+---
+
+### D-021 — 2026-08-30 — BR-02's auto-enrolled case is created directly in ELIGIBLE, skipping ELIGIBILITY_PENDING
+
+**Decision:** `runAutoEnrollmentSweep()` creates the mandatory case with
+`state: "ELIGIBLE"` in a single `INSERT`, never passing through
+`ELIGIBILITY_PENDING`.
+
+**Why:** See `OPEN_QUESTIONS.md` OQ-11 for the full reasoning — in short,
+M03 never auto-creates a case for the normal 4-semester eligibility path
+(that's read as student action, M05's job), so BR-02's fallback case has
+no prior `ELIGIBILITY_PENDING` row to transition *from*. Creating it
+already-eligible is the only reading consistent with "the system creates
+a mandatory case" being the trigger event, not a multi-step process. This
+is a fresh `INSERT`, not an `UPDATE` of `cases.state`, so it needs no
+transition executor (M04) to do correctly — the `BEFORE UPDATE OF state`
+trigger from M01 never fires on `INSERT`.
+
+---
+
+### D-022 — 2026-08-30 — Dockerfile: full node_modules + src/ copied to runtime, `output: "standalone"` removed
+
+**Decision:** `next.config.ts` no longer sets `output: "standalone"`.
+The Dockerfile's `runtime` stage now copies the builder stage's complete
+`node_modules`, the raw `src/` tree, and `tsconfig.json` — not just
+Next's pruned standalone bundle. `app` runs via
+`node node_modules/next/dist/bin/next start`; `worker` runs via
+`node node_modules/tsx/dist/cli.mjs worker/index.ts`, executing real
+TypeScript directly against the same source tree the app is built from.
+
+**Why:** M03 is the first module where `worker` does real work —
+consuming a BullMQ queue and running `src/server/roster/
+auto-enrollment-sweep.ts` on a schedule. Next's file tracer (what
+`standalone` output relies on) only follows imports reachable from the
+Next.js app itself; it has no way to know a separate process needs
+`bullmq` or `tsx`. The alternative — reimplementing the sweep a second
+time in worker-only plain JavaScript, untyped and duplicated — was
+rejected as strictly worse than a larger image. First attempt at this
+fix only copied `node_modules`, still missing raw `src/`; the worker
+failed immediately with `ERR_MODULE_NOT_FOUND` on its very first
+container start (tsx compiles `worker/index.ts` on the fly from source —
+the compiled `.next` output the app runs from doesn't help it at all).
+Caught by actually starting the container, not just building the image.
+
+**Trade-off, stated plainly:** the runtime image now carries
+devDependencies (`typescript`, `eslint`, `vitest`, …) it never executes,
+larger than a truly pruned image would be. Accepted for a self-hosted,
+single-tenant university deployment where image size isn't a
+cold-start-sensitive concern; M14 (hardening) can revisit with a proper
+worker bundler if a leaner image ever becomes worth the added build
+complexity.
+
+---
+
+### D-023 — 2026-08-30 — BullMQ 6.x: `upsertJobScheduler`, not `Queue.add({ repeat })`
+
+**Decision:** `worker/index.ts` registers the roster-sweep schedule via
+`queue.upsertJobScheduler("roster-sweep-schedule", { every: ... }, ...)`.
+
+**Why:** Not a design choice so much as a version fact worth recording:
+BullMQ 6.x removed `repeat` from `JobsOptions` entirely (a TypeScript
+compile error caught it, not a runtime surprise) — repeatable jobs are
+now `Queue.upsertJobScheduler()`'s job specifically. It's idempotent by
+scheduler ID, which is what makes calling it unconditionally on every
+worker startup safe (no duplicate schedules from a restart or a brief
+two-worker overlap during a rolling deploy).
+
+---
+
+### D-024 — 2026-08-30 — CSV-only roster import; XLSX deferred
+
+**Decision:** `src/server/roster/csv-import.ts` parses CSV only.
+
+**Why:** OQ-06 (roster source/format) is unanswered. `MASTER_PROMPT.md`
+§7 lists "CSV/XLSX" for this module, not "CSV and XLSX both, day one" —
+CSV is universally exportable from any real SIS/spreadsheet tool, so it's
+the safe default per §0.2's restrictive-interpretation rule. Adding an
+XLSX branch later is additive (a second parser behind the same
+`importRoster()` entry point), not a rewrite.

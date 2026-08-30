@@ -12,7 +12,6 @@ const config = [
       "node_modules/**",
       ".next/**",
       "next-env.d.ts",
-      "worker/**",
       "prisma/generated/**",
     ],
   },

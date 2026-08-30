@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["node", "server.js"]
+    command: ["node", "node_modules/next/dist/bin/next", "start"]
     env_file:
       - .env
     environment:
@@ -63,7 +63,10 @@ services:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
-    command: ["node", "worker/index.mjs"]
+    # tsx runs worker/index.ts as real TypeScript directly — no separate
+    # build step, sharing the same node_modules (and therefore the same
+    # generated Prisma Client) as `app`. See docs/modules/M03.md.
+    command: ["node", "node_modules/tsx/dist/cli.mjs", "worker/index.ts"]
     env_file:
       - .env
     environment:
@@ -76,7 +79,7 @@ services:
     healthcheck:
       # The app image's own HEALTHCHECK probes an HTTP port this process
       # never opens, so it's overridden here with a heartbeat-file check
-      # matching worker/index.mjs's periodic writeFileSync.
+      # matching worker/index.ts's periodic writeFileSync.
       test:
         [
           "CMD",

@@ -1,85 +1,85 @@
 # Progress
 
-**Current module:** M03 — Roster, semesters and the eligibility engine
+**Current module:** M04 — Case lifecycle core
 **Last session:** 2026-08-30
 **Build status:** green (`docker compose up --build` succeeds from a clean
-volume state; `pnpm lint`, `pnpm typecheck`, `pnpm test` [47/47],
-`pnpm test:integration` [57/57] all pass; real credentials sign-in and
-cross-student ownership verified against the running app in Docker)
+volume state including the worker; `pnpm lint`, `pnpm typecheck`,
+`pnpm test` [64/64], `pnpm test:integration` [77/77] all pass; worker
+confirmed actually consuming the roster-sweep queue in the real
+docker-compose stack, not just in the mocked test suite)
 
 ## Completed modules
 - [x] M00 Repo + Docker skeleton
 - [x] M01 Data model + migrations
 - [x] M02 Identity, sessions and authorisation
-- [ ] M03 Roster, semesters and the eligibility engine  <- up next, not started
+- [x] M03 Roster, semesters and the eligibility engine
+- [ ] M04 Case lifecycle core  <- up next, not started
 
 ## Where I stopped
-Implemented M02 in full per `/docs/modules/M02.md`: Auth.js v5 credentials
-sign-in (argon2id via `src/server/auth/password.ts`), a new migration
-adding `failed_login_attempts`/`locked_until`/`token_version` to `users`
-and the `password_reset_tokens` table (partial unique index for "one live
-token", same mechanism as M01's supervisor tokens), the full 18-row §3
-capability matrix (`src/server/authz/matrix.ts`) plus a pure
-`requireCapability()` decision function, brute-force lockout (5 attempts /
-15 min) and Redis-backed rate limiting (login + password-reset, both by
-IP), the password-reset request/confirm routes, and a new ESLint rule
-(`eslint-rules/require-capability-on-mutation.mjs`) that fails the build
-if a route under `src/app/api/**` mutates without calling
-`requireCapability()` — `src/app/api/auth/**` is excluded, since those are
-the pre-authentication entry points themselves.
+Implemented M03 in full per `/docs/modules/M03.md`: a new migration
+(`semesters` gains `sequence_number`/`status`, `cases` gains
+`auto_enrolled`, new `roster_imports` table, plus a partial unique index
+limiting the whole `semesters` table to at most one `OPEN` row — same
+`(true)`-expression-index trick as M01/M02's other "at most one X"
+constraints). `computeEligibility()` (BR-01/BR-04) is a pure function,
+never a stored column; CSV roster import
+(`src/server/roster/csv-import.ts`, OQ-06's restrictive default); the
+BR-02 auto-enrollment sweep, which creates a genesis `Case` row directly
+in `ELIGIBLE` (a fresh `INSERT`, not a guarded `UPDATE` — no transition
+executor needed yet, see OQ-11); 8 new API routes (semester CRUD/open/
+close, roster import, sweep-now, eligibility).
 
-Sessions are JWT-based (not Auth.js's database adapter — no OAuth
-providers exist to justify its Account/Session tables yet). Invalidation
-on password/role change works by re-reading `tokenVersion` and roles from
-the database on every request, in two independent places
-(`config.ts`'s `jwt` callback *and* `getCurrentIdentity()`) rather than
-trusting Auth.js's own invalidation semantics alone — see DECISIONS.md
-D-015/D-016.
+The worker stopped being a heartbeat placeholder this module — it's now
+a real BullMQ consumer running `worker/index.ts` via `tsx`, registering a
+repeatable schedule for the sweep at startup. That required a real
+architecture change: `next.config.ts`'s `output: "standalone"` is gone,
+and the Dockerfile's runtime stage now copies the builder stage's full
+`node_modules` (plus, after a first failed container start caught it,
+the raw `src/` tree and `tsconfig.json`) instead of Next's pruned bundle
+— the worker runs real TypeScript directly via tsx and needs the actual
+source and its dependencies on disk, which Next's file tracer had no way
+to know about since it only follows the Next.js app's own import graph.
+Documented in DECISIONS.md D-022 and `docs/modules/M03.md` "Why the
+Dockerfile changed."
 
-`Case` has no route yet (M04/M05), so M02's own done criterion — "a
-student's session cannot read another student's case" — is proven against
-`Student` via a new `GET /api/students/:id` (`student.view_own` vs.
-`student.view_any`, 404 not 403 on a denied cross-student read). This is
-scaffolding, explicitly not extended with case-shaped behavior; see
-M02.md's "Scope decisions."
+New open question, OQ-11 (not one of the original §12 list): exactly
+when is a `Case` auto-created relative to eligibility? Restrictive
+reading applied — M03 never auto-creates one for the normal 4-semester
+path (that's read as student action, M05's job); only BR-02's explicit
+semester-6 fallback creates a case, and it does so directly in ELIGIBLE.
+M04 should confirm or correct this once the full transition table exists.
 
-One real bug found via `next-auth`'s package structure, not anticipated
-in the spec: importing anything from the top-level `next-auth` package
-(even just the `CredentialsSignin` error class) pulls in `next/server`,
-which fails to resolve outside Next.js's own bundler — broke a Vitest
-integration test that imports the credentials-authorize logic directly.
-Fixed by importing `CredentialsSignin` from `@auth/core/errors` instead
-(added as an explicit pinned dependency) — see DECISIONS.md D-017.
-
-Verified against the real `docker compose` stack: migrated + provisioned
-`scit_app`'s password via a throwaway container on the compose network,
-brought the full stack up (every service healthy, Caddy included), then
-ran the *actual* Auth.js credentials flow against the running app —
-fetched a real CSRF token, signed in as a seeded dev user, got a real
-`authjs.session-token` cookie, hit `/api/me` and `/api/students/:id` with
-it. Confirmed: wrong password issues no cookie; a student reading their
-own record gets 200; reading another student's gets 404; a Focal Person
-reading any student gets 200. This is the actual mechanism working
-end-to-end, not just the mocked-session integration test suite (57
-passing) agreeing with itself.
+Real bugs found and fixed via full docker-compose verification, not just
+unit tests: (1) BullMQ 6.x removed `repeat` from `Queue.add()`'s options
+entirely — a TypeScript compile error caught it before runtime, fixed by
+switching to `upsertJobScheduler()`. (2) The worker's first container
+start failed with `ERR_MODULE_NOT_FOUND` — the Dockerfile copied
+`node_modules` but not `src/`, and tsx needs the actual source on disk to
+compile on the fly. (3) Several integration tests collided with each
+other's leftover state on repeated local runs (an OPEN semester left
+behind by one test breaking another's partial-unique-index assumption,
+and the old M01 raw-SQL semester fixture missing the new NOT NULL
+`sequence_number` column) — all fixed, confirmed clean on a truly fresh
+database + Redis, not just "passed once."
 
 ## Next action
-Start M03: write `/docs/modules/M03.md`, then implement roster CSV/XLSX
-import, semester configuration, the graduation-clock computation
-(BR-04, read-only to every human role), the eligibility recomputation job,
-and the BR-02 auto-enrolment sweep. This is the first module that touches
-BR-01 through BR-05 and needs a real answer — or another restrictive
-default — for OQ-01 (deadline dates) and OQ-06 (roster source format)
-before the import format can be finalized.
+Write `/docs/modules/M04.md`, then implement: the full state machine
+table from `MASTER_PROMPT.md` §5, the transition executor (the only code
+path allowed to write `cases.state`, using the `SET LOCAL
+app.transition_authorized` mechanism the M01 trigger already enforces),
+the guard framework (pure predicate functions per §5.2), and event
+emission into `case_events`. No UI. M04 should also weigh in on OQ-11 —
+once the real transition table exists, confirm whether M03's restrictive
+reading (no case until BR-02's fallback or M05's student action) is
+right, or whether every student should get an `ELIGIBILITY_PENDING` case
+earlier.
 
 ## Blocked on
-- OQ-01 (per-semester document deadlines) — blocks M03's deadline
-  configuration; `semesters.document_deadline` is nullable until answered.
-- OQ-06 (roster source system/format) — blocks M03's import format;
-  implement CSV as the safe default (universally exportable from any SIS)
-  unless told otherwise.
-- OQ-05 (BNU OIDC/SAML) — implemented restrictive default in M02
-  (self-managed argon2id credentials); `TODO(OQ-05)` in
-  `src/server/auth/config.ts`.
-- OQ-10 (tenancy) — implemented restrictive default in M01 (no tenant
-  column); `TODO(OQ-10)` comments on `User`/`Student` in schema.prisma.
+- OQ-11 (case-creation timing) — restrictive default applied in M03;
+  M04 should revisit once the transition table is designed.
+- OQ-01 (per-semester document deadlines) — `semesters.document_deadline`
+  stays nullable/admin-set until answered; doesn't block M04.
+- OQ-06 (roster format) — CSV implemented as the restrictive default;
+  XLSX support would be additive if ever needed.
+- OQ-05 (BNU OIDC/SAML) — restrictive default applied in M02.
+- OQ-10 (tenancy) — restrictive default applied in M01.
