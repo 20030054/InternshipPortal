@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import AlphabeticalSequencer from "./vitest.integration.sequencer";
 
 // Separate from vitest.config.ts because this suite needs a real Postgres
 // with migrations applied and the scit_app runtime role already
@@ -25,5 +26,15 @@ export default defineConfig({
     // concurrently against it — fixture IDs are stable, not randomised
     // per test, so parallel files would collide.
     fileParallelism: false,
+    // Vitest's default sequencer orders by cached duration, not name —
+    // wrong for a shared-database suite whose fixture files rely on a
+    // documented "low-numbered blocks run first" ordering. See
+    // vitest.integration.sequencer.ts (kept at the project root, not
+    // under tests/, since .dockerignore excludes tests/ entirely and
+    // this config file is still reachable from Next's own build-time
+    // type-check).
+    sequence: {
+      sequencer: AlphabeticalSequencer,
+    },
   },
 });

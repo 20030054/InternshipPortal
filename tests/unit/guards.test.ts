@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  actualDatesRecorded,
   belowRestartCap,
   differentOrganization,
   distinctSigners,
@@ -366,6 +367,45 @@ describe("relevanceConfirmed (BR-09)", () => {
 
   it("passes when explicitly true", () => {
     const result = relevanceConfirmed(baseCtx({ offer: { relevanceConfirmed: true } }));
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe("actualDatesRecorded (BR-08, actual-dates half)", () => {
+  it("fails when completion context is missing", () => {
+    expect(actualDatesRecorded(baseCtx()).ok).toBe(false);
+  });
+
+  it("fails when only one of the two dates is present", () => {
+    const result = actualDatesRecorded(
+      baseCtx({ completion: { actualStart: new Date("2026-06-01") } }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects an actual end date not after the actual start date", () => {
+    const result = actualDatesRecorded(
+      baseCtx({
+        completion: {
+          actualStart: new Date("2026-06-15"),
+          actualEnd: new Date("2026-06-01"),
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes with a sane actual date range, regardless of length", () => {
+    // Deliberately outside the 4-8-week planned bound -- this guard
+    // never enforces that; BR-08 flags variance, it doesn't block it.
+    const result = actualDatesRecorded(
+      baseCtx({
+        completion: {
+          actualStart: new Date("2026-06-01"),
+          actualEnd: new Date("2026-06-15"), // 2 weeks
+        },
+      }),
+    );
     expect(result).toEqual({ ok: true });
   });
 });

@@ -1,5 +1,6 @@
 import type { Transition } from "./types";
 import {
+  actualDatesRecorded,
   belowRestartCap,
   differentOrganization,
   distinctSigners,
@@ -83,7 +84,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "IN_PROGRESS",
     to: "DOCS_PENDING",
     actorRole: "STUDENT",
-    guards: [],
+    guards: [actualDatesRecorded], // BR-08, real as of M07
     requiresReason: false,
     emitsEvent: "DOCS_SUBMISSION_STARTED",
   },

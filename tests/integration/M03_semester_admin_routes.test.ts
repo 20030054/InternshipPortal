@@ -10,6 +10,17 @@ describe("M03: semester admin routes", () => {
   // Shares one database with every other integration test file (see
   // M03_semester_open_close_exclusivity.test.ts's identical comment) — a
   // clean slate here, not an assumed one.
+  //
+  // The semester this file creates and closes goes through the real
+  // POST /api/admin/semesters route, which assigns sequenceNumber via
+  // production's own nextSequenceNumber() (always above the current
+  // global max) — unlike the exclusivity file, there's no low-number
+  // override to give it without changing that route's contract. Safe
+  // today only because this filename sorts after
+  // M03_eligibility_route_ownership.test.ts and BR02_auto_enrollment_
+  // sweep.test.ts alphabetically, and vitest.integration.config.ts's
+  // sequencer now pins file execution to that order (see its comment
+  // for the real bug this guards against).
   beforeEach(async () => {
     await prisma.semester.updateMany({
       where: { status: "OPEN" },

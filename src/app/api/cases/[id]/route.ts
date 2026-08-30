@@ -6,6 +6,7 @@ import {
 } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
 import { prisma } from "@/server/db/client";
+import { durationVarianceFor } from "@/server/progress/service";
 
 /** Same case.view_any / case.view_own + "404, not 403" ownership pattern
  * as GET /api/students/:id (M02) and GET /api/students/:id/eligibility
@@ -63,7 +64,10 @@ export async function GET(
       }
     }
 
-    return NextResponse.json(kase);
+    return NextResponse.json({
+      ...kase,
+      durationVariance: durationVarianceFor(kase),
+    });
   } catch (err) {
     const response = authzErrorResponse(err);
     if (response) return response;

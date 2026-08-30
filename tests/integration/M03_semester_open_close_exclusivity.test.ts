@@ -18,9 +18,20 @@ describe("M03: at most one OPEN semester at a time", () => {
     });
   });
 
+  // Explicit low sequenceNumbers, not createSemesterFixture()'s default
+  // random 100k-999k range: every test here ends with a CLOSED semester,
+  // and computeEligibility()'s DB-wide callers (BR02's sweep, the real
+  // eligibility route) count *every* CLOSED semester at or above a
+  // student's admission point — a high one here would silently inflate
+  // an unrelated test's count. Found for real while building M07 (this
+  // file, running out of alphabetical order under Vitest's default
+  // duration-based sequencer, corrupted M03_eligibility_route_ownership's
+  // count); fixed at the root by pinning file order
+  // (vitest.integration.config.ts's `sequence.sequencer`), and here too
+  // as defence in depth. See docs/DECISIONS.md.
   it("openSemester() closes the previously OPEN semester atomically", async () => {
-    const first = await createSemesterFixture({ status: "OPEN" });
-    const second = await createSemesterFixture({ status: "UPCOMING" });
+    const first = await createSemesterFixture({ status: "OPEN", sequenceNumber: 90_000 });
+    const second = await createSemesterFixture({ status: "UPCOMING", sequenceNumber: 90_001 });
 
     await openSemester(second.id);
 
@@ -38,8 +49,8 @@ describe("M03: at most one OPEN semester at a time", () => {
     const db = appClient();
     await db.connect();
     try {
-      const first = await createSemesterFixture({ status: "OPEN" });
-      const second = await createSemesterFixture({ status: "UPCOMING" });
+      const first = await createSemesterFixture({ status: "OPEN", sequenceNumber: 90_002 });
+      const second = await createSemesterFixture({ status: "UPCOMING", sequenceNumber: 90_003 });
 
       await expect(
         db.query(`UPDATE semesters SET status = 'OPEN' WHERE id = $1`, [
@@ -60,7 +71,7 @@ describe("M03: at most one OPEN semester at a time", () => {
   });
 
   it("closeSemester() closes without requiring another to be opened", async () => {
-    const semester = await createSemesterFixture({ status: "OPEN" });
+    const semester = await createSemesterFixture({ status: "OPEN", sequenceNumber: 90_004 });
 
     await prisma.semester.update({
       where: { id: semester.id },

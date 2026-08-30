@@ -56,6 +56,7 @@ model User {
   auditEvents          AuditEvent[]         @relation("AuditActor")
   caseEventsActed      CaseEvent[]          @relation("CaseEventActor")
   documentsUploaded    Document[]           @relation("DocumentUploadedBy")
+  progressLogEntries   ProgressLogEntry[]   @relation("ProgressLogEntryCreatedBy")
   verificationsDone    Verification[]       @relation("VerificationVerifier")
   gradesRecommended    Grade[]              @relation("GradeRecommendedBy")
   gradesAwarded        Grade[]              @relation("GradeAwardedBy")
@@ -315,12 +316,35 @@ model Case {
   restartRequestsAsFailed RestartRequest[]  @relation("RestartFailedCase")
   notifications           Notification[]
   grade                   Grade?
+  progressLogEntries      ProgressLogEntry[]
 
   // BR-06's real enforcement is the partial unique index appended in raw
   // SQL (WHERE state NOT IN (<terminal states>)) — Prisma's schema
   // language has no syntax for a partial index, so it isn't declared here.
   @@index([studentId])
   @@map("cases")
+}
+
+/// M07's replacement for the Google Sheet's weekly rows — one entry per
+/// (case, week), immutable once written (same append-only default as
+/// case_events/audit_events/documents; a correction is a new later
+/// entry, not a rewrite). `UNIQUE (case_id, week_number)` is the real
+/// enforcement of "no silent overwrite of a week" — see
+/// docs/modules/M07.md.
+model ProgressLogEntry {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  caseId     String   @map("case_id") @db.Uuid
+  weekNumber Int      @map("week_number")
+  note       String
+  createdBy  String   @map("created_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  case    Case @relation(fields: [caseId], references: [id])
+  creator User @relation("ProgressLogEntryCreatedBy", fields: [createdBy], references: [id])
+
+  @@unique([caseId, weekNumber])
+  @@index([caseId])
+  @@map("progress_log_entries")
 }
 
 /// Append-only. The runtime database role has INSERT + SELECT only on this

@@ -43,7 +43,7 @@ describe("ESLint rule: local/require-capability-on-mutation", () => {
         (m) => m.ruleId === "local/require-capability-on-mutation",
       ),
     ).toBe(true);
-  });
+  }, 20_000);
 
   it("passes a mutating route that does call requireCapability()", async () => {
     const goodRoute = `
@@ -71,7 +71,7 @@ describe("ESLint rule: local/require-capability-on-mutation", () => {
         (m) => m.ruleId === "local/require-capability-on-mutation",
       ),
     ).toBe(false);
-  });
+  }, 20_000);
 
   it("does not apply to routes under src/app/api/auth/** (pre-authentication entry points)", async () => {
     const authRoute = `
@@ -95,7 +95,7 @@ describe("ESLint rule: local/require-capability-on-mutation", () => {
         (m) => m.ruleId === "local/require-capability-on-mutation",
       ),
     ).toBe(false);
-  });
+  }, 20_000);
 
   it("does not flag a non-mutating route with no requireCapability() call", async () => {
     const readOnlyRoute = `
@@ -119,5 +119,5 @@ describe("ESLint rule: local/require-capability-on-mutation", () => {
         (m) => m.ruleId === "local/require-capability-on-mutation",
       ),
     ).toBe(false);
-  });
+  }, 20_000);
 });

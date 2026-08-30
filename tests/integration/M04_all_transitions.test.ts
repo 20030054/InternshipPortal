@@ -27,14 +27,15 @@ import { createUserActor } from "./support/actor";
  * result and reuse its .userId in both places, rather than creating two
  * separate users and hoping their fake ids happened to differ.
  *
- * Rows 1, 2, 4 and 6 now carry M05's real guards (BR-01/07/08/09) rather
- * than M04's original always-pass stubs — their success-path tests below
- * pass the minimal valid `context` those guards need. Guard *failure*
- * paths for those four rows are covered by the dedicated
- * BR01/BR07/BR08/BR09 test files (through the real routes), not
- * duplicated here — this file's job is proving each row's (from, to,
- * actor, reason) shape against the real table, not re-proving what
- * guards.test.ts and the BR0X files already cover.
+ * Rows 1, 2, 4 and 6 now carry M05's real guards (BR-01/07/08/09), and
+ * row 8 carries M07's (BR-08's actual-dates half) — rather than M04's
+ * original always-pass stubs. Their success-path tests below pass the
+ * minimal valid `context` those guards need. Guard *failure* paths for
+ * those rows are covered by the dedicated BR01/BR07/BR08/BR09 test
+ * files (through the real routes), not duplicated here — this file's
+ * job is proving each row's (from, to, actor, reason) shape against the
+ * real table, not re-proving what guards.test.ts and the BR0X files
+ * already cover.
  */
 const VALID_OFFER = {
   companyName: "Acme Corp",
@@ -143,7 +144,14 @@ describe("M04: every transition in the real table", () => {
   it("8. IN_PROGRESS -> DOCS_PENDING (STUDENT)", async () => {
     const kase = await createCaseFixture({ state: "IN_PROGRESS" });
     const actor = await createUserActor("STUDENT");
-    const result = await executeTransition(kase.id, "DOCS_PENDING", actor);
+    const result = await executeTransition(kase.id, "DOCS_PENDING", actor, {
+      context: {
+        completion: {
+          actualStart: new Date("2026-06-01"),
+          actualEnd: new Date("2026-07-13"),
+        },
+      },
+    });
     expect(result.state).toBe("DOCS_PENDING");
   });
 

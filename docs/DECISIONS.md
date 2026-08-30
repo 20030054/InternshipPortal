@@ -804,3 +804,125 @@ unreachable in practice — its own "success path" test would have to
 fake the missing leg, which isn't meaningfully different from the stub
 it would be replacing. Left fully stubbed until M08 exists to supply
 the third leg for real; the stub's comment now names both M08 and M09.
+
+---
+
+### D-043 — 2026-08-30 — Progress log entries are a new table, immutable, one per `(case, week)`
+
+**Decision:** `ProgressLogEntry` (migration `20260830140000_progress_log`)
+is a new table, `UNIQUE (case_id, week_number)`, never updated or
+deleted once written.
+
+**Why:** `MASTER_PROMPT.md` describes "student-side progress log, weeks
+completed, mid-point check-in" without a `BR-` ID or a field-level
+shape, unlike BR-07/08/09's precise lists. One row per week mirrors the
+Google Sheet this module replaces; immutability matches the same
+append-only default this codebase already applies to `case_events`/
+`audit_events`/`documents` — a correction is a new later entry, not a
+rewrite of history.
+
+---
+
+### D-044 — 2026-08-30 — "Weeks completed" and "mid-point reached" are both computed, never stored
+
+**Decision:** `weeksCompleted` is `COUNT(entries)` (not the highest
+`weekNumber` logged), and `hasReachedMidpoint` is derived from whether
+any logged entry's `weekNumber` is at or past
+`ceil(plannedWeeks / 2)` — neither is a column anywhere.
+
+**Why:** A `MAX(weekNumber)` count would overstate progress if a
+student skipped a week (logged week 1 then week 3) — counting rows is
+the literal "how many weekly updates actually happened." Deriving the
+midpoint from the real log, the same way BR-01's eligibility is
+computed from the roster rather than self-declared, means it can never
+drift from what was actually logged the way a separately-set checkbox
+could.
+
+---
+
+### D-045 — 2026-08-30 — Actual dates are recorded at the same action that fires `IN_PROGRESS -> DOCS_PENDING`
+
+**Decision:** `completeInternship()` writes `cases.actual_start`/
+`actual_end` and calls the real executor for row 8 in one function,
+behind one route (`POST /api/cases/:id/complete-internship`). Row 8's
+guard (previously empty) is now `actualDatesRecorded` — presence and
+`end > start` sanity only, deliberately **not** the 4-8-week bound
+`durationWithinBounds` enforces on *planned* dates.
+
+**Why:** BR-08: "the system records planned dates at approval and
+actual dates at completion" — "completion" reads as the same moment the
+student finishes and moves to document submission, i.e. row 8 itself,
+not a separate step. Not enforcing the week-bound on actual dates is
+deliberate: BR-08 also says the system "flags any variance for the
+Focal Person," which only makes sense if an out-of-bounds actual
+duration is allowed to happen and get flagged, not silently blocked at
+the door.
+
+---
+
+### D-046 — 2026-08-30 — Vitest's default file sequencer is wrong for this suite; pinned to alphabetical order
+
+**Decision:** `vitest.integration.config.ts` sets a custom
+`sequence.sequencer` (`vitest.integration.sequencer.ts`, kept at the
+project root rather than under `tests/` — see its own doc comment for
+why) that sorts test files by plain filename instead of Vitest's
+default duration-based heuristic.
+
+**Why:** Found for real while building M07: `fileParallelism: false`
+(this config) exists because these integration tests share one live
+database with no per-test isolation, and this suite's own fixture files
+have — since M03 — relied on and documented a "each file reserves a
+disjoint numeric block, low blocks run before high ones" convention
+that only holds if files actually *execute* in a stable, predictable
+order. Vitest's default `BaseSequencer` orders by cached test duration
+(for shard-balancing), which is neither alphabetical nor stable across
+runs — confirmed by reproducing a real failure where
+`M03_semester_open_close_exclusivity.test.ts` ran *before*
+`M03_eligibility_route_ownership.test.ts` despite sorting the other way
+alphabetically, silently inflating the latter's semester count. Pinning
+to filename order makes the suite's existing ordering comments actually
+true, deterministically, on every run — not just on the runs where the
+duration cache happened to cooperate.
+
+---
+
+### D-047 — 2026-08-30 — Two more latent test-fixture pollution sources closed while building M07
+
+**Decision:** `M03_semester_open_close_exclusivity.test.ts`'s semesters
+now use explicit low `sequenceNumber`s (90000-90004) instead of
+`createSemesterFixture()`'s random default; `createClosedSemesterChain()`
+'s derived `year` offset (D-035's fix, M05) was widened from `2000 +
+startSequence` to `1,000,000 + startSequence` after the smaller offset
+collided with `BR01_eligibility_is_computed_not_stored.test.ts`'s own
+hand-picked `5100 + random(0, 1000)` year range.
+
+**Why:** Both are the same class of bug D-035 already named: a test
+that creates a `CLOSED` semester with an uncontrolled or too-narrow
+number silently pollutes another test's `computeEligibility()`-based
+count, or collides on the `(type, year)` unique constraint. D-046's
+sequencer fix addresses the *ordering* half of this risk at the root;
+these two are the remaining *magnitude*/*range* half — a low-but-
+uncontrolled sequenceNumber, and a derived-year offset that turned out
+not to be as clear of every hand-written range elsewhere in the suite
+as first thought. `M03_semester_admin_routes.test.ts` has the same
+shape of risk but can't be fixed the same way (its semester's
+`sequenceNumber` comes from production's own `nextSequenceNumber()` via
+the real route, not a fixture parameter) — left as a documented residual
+risk, bounded by D-046's ordering fix, in that file's own comment.
+
+---
+
+### D-048 — 2026-08-30 — `require-capability-lint-rule.test.ts`'s timeout raised to 20s
+
+**Decision:** Each `it()` in this file (which invokes ESLint's Node API,
+including type-aware parsing via `typescript-eslint`, against the real
+project) now passes an explicit `20_000`ms timeout, up from Vitest's
+5000ms default.
+
+**Why:** A cold `new ESLint()` instantiation plus its first type-aware
+lint pass scales with the size of the project it's configured against —
+this repository has grown by dozens of files across M05/M06/M07, and
+the first test in this file started intermittently exceeding 5 seconds
+on ordinary hardware. Not a logic bug in the rule itself (the assertions
+are unchanged); a timing budget that no longer matched real project
+size.

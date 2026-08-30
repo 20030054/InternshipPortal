@@ -1,4 +1,5 @@
 import type { GuardFn, GuardResult } from "./types";
+import { weeksBetween } from "@/server/progress/duration";
 
 /**
  * Real guards — implemented now because the data they need already
@@ -149,9 +150,7 @@ export const durationWithinBounds: GuardFn = (ctx): GuardResult => {
   ) {
     return { ok: false, reason: "planned dates or duration bounds missing" };
   }
-  const millisPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const weeks =
-    (offer.plannedEnd.getTime() - offer.plannedStart.getTime()) / millisPerWeek;
+  const weeks = weeksBetween(offer.plannedStart, offer.plannedEnd);
   if (weeks <= 0) {
     return { ok: false, reason: "BR-08: planned end must be after planned start" };
   }
@@ -166,6 +165,24 @@ export const durationWithinBounds: GuardFn = (ctx): GuardResult => {
       ok: false,
       reason: `BR-08: duration (${weeks.toFixed(1)} weeks) exceeds the ${offer.maxWeeks}-week maximum`,
     };
+  }
+  return { ok: true };
+};
+
+/** BR-08 (the actual-dates half — M07): `IN_PROGRESS -> DOCS_PENDING`
+ * requires the student to have recorded actual start/end dates, and
+ * that they're sane (end after start) — deliberately *not* re-checking
+ * the 4-8-week bound the way durationWithinBounds does for planned
+ * dates. BR-08 says the system "flags any variance for the Focal
+ * Person," which only makes sense if an out-of-bounds actual duration
+ * is allowed to happen, not blocked here. */
+export const actualDatesRecorded: GuardFn = (ctx): GuardResult => {
+  const completion = ctx.completion;
+  if (!completion?.actualStart || !completion?.actualEnd) {
+    return { ok: false, reason: "BR-08: actual start and end dates are required" };
+  }
+  if (weeksBetween(completion.actualStart, completion.actualEnd) <= 0) {
+    return { ok: false, reason: "BR-08: actual end must be after actual start" };
   }
   return { ok: true };
 };

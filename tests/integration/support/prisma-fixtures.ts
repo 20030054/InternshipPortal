@@ -29,7 +29,14 @@ export async function createSemesterFixture(
     status?: SemesterStatus;
   } = {},
 ) {
-  const year = overrides.year ?? 2100 + Math.floor(Math.random() * 100000);
+  // `type` defaults to FALL below for nearly every caller in this suite
+  // that doesn't care what semester it gets — collapsing the real
+  // (type, year) collision space down to just this one type's years.
+  // At this suite's volume (many hundreds of default-semester creations
+  // across the full run), a 100,000-wide year range had a real,
+  // non-negligible birthday-paradox collision chance — hit for real
+  // while building M07. Widened 1000x; see docs/DECISIONS.md.
+  const year = overrides.year ?? 2100 + Math.floor(Math.random() * 100_000_000);
   const sequenceNumber =
     overrides.sequenceNumber ?? 100_000 + Math.floor(Math.random() * 900_000);
   return prisma.semester.create({
@@ -59,7 +66,14 @@ export async function createSemesterFixture(
  * while building M05. Since callers already keep `startSequence` blocks
  * disjoint by convention (every semester-creating test file in this
  * suite reserves its own numeric block), piggybacking `year` on that
- * same already-enforced uniqueness needs no new coordination.
+ * same already-enforced uniqueness needs no new coordination — but the
+ * offset has to be large enough to clear every hand-written manual year
+ * elsewhere in the suite too (e.g. BR01_eligibility_is_computed_not_
+ * stored.test.ts's own `5100 + random(0, 1000)`), not just other
+ * `createClosedSemesterChain` callers: a first attempt at this offset
+ * (+2000) put M05's fixtures' years at 6000-6003, inside that exact
+ * random range, and got hit for real while building M07. +1,000,000
+ * clears every existing range with room to spare.
  */
 export async function createClosedSemesterChain(
   count: number,
@@ -70,7 +84,7 @@ export async function createClosedSemesterChain(
     semesters.push(
       await createSemesterFixture({
         sequenceNumber: startSequence + i,
-        year: 2000 + startSequence + i,
+        year: 1_000_000 + startSequence + i,
         status: "CLOSED",
       }),
     );
@@ -107,6 +121,10 @@ export async function createCaseFixture(
     companyId?: string;
     previousCaseId?: string;
     autoEnrolled?: boolean;
+    plannedStart?: Date;
+    plannedEnd?: Date;
+    actualStart?: Date;
+    actualEnd?: Date;
   } = {},
 ) {
   const studentId = overrides.studentId ?? (await createStudentFixture()).id;
@@ -117,6 +135,10 @@ export async function createCaseFixture(
       companyId: overrides.companyId,
       previousCaseId: overrides.previousCaseId,
       autoEnrolled: overrides.autoEnrolled ?? false,
+      plannedStart: overrides.plannedStart,
+      plannedEnd: overrides.plannedEnd,
+      actualStart: overrides.actualStart,
+      actualEnd: overrides.actualEnd,
     },
   });
 }

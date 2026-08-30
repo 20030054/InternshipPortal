@@ -69,6 +69,16 @@ export type TransitionContext = {
     maxWeeks?: number;
     relevanceConfirmed?: boolean;
   };
+
+  /** Populated only for `IN_PROGRESS -> DOCS_PENDING` (BR-08's actual-
+   * dates half — M07). Only checked for presence/sanity here; the
+   * 4-8-week bound is deliberately not enforced on the *actual* dates
+   * the way it is on planned ones — BR-08 says variance gets flagged,
+   * not blocked. */
+  completion?: {
+    actualStart?: Date;
+    actualEnd?: Date;
+  };
 };
 
 /** A human actor (session-backed) or the system (a scheduled job /
