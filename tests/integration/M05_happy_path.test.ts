@@ -6,6 +6,7 @@ import { sessionState } from "./setup";
 import { assignRole, createUserFixture } from "./support/prisma-fixtures";
 import { createEligibleStudent } from "./support/offer-fixtures";
 import { prisma } from "@/server/db/client";
+import { validPdfFile } from "./support/files";
 
 /**
  * The whole normal-path arc M05 owns, through real HTTP-shaped route
@@ -33,10 +34,7 @@ describe("M05: happy path end to end", () => {
     formData.append("companyName", "Acme Corp");
     formData.append("companyContact", "hr@acme.test");
     formData.append("workDescription", "x".repeat(200));
-    formData.append(
-      "offerLetter",
-      new File([new Uint8Array([1, 2, 3])], "offer.pdf", { type: "application/pdf" }),
-    );
+    formData.append("offerLetter", validPdfFile());
 
     const submitResponse = await postOffer(
       new Request("http://test", { method: "POST", body: formData }),

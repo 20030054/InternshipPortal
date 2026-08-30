@@ -7,6 +7,7 @@ import { POST as postReject } from "@/app/api/cases/[id]/reject/route";
 import { sessionState } from "./setup";
 import { assignRole, createUserFixture } from "./support/prisma-fixtures";
 import { createOfferUnderReviewCase } from "./support/offer-fixtures";
+import { validPdfFile } from "./support/files";
 
 function jsonRequest(body: unknown): Request {
   return new Request("http://test/api/cases/x", {
@@ -54,10 +55,7 @@ describe("M05: case route ownership and capability wiring", () => {
     formData.append("companyName", "Acme");
     formData.append("companyContact", "hr@acme.test");
     formData.append("workDescription", "x".repeat(200));
-    formData.append(
-      "offerLetter",
-      new File([new Uint8Array([1])], "offer.pdf", { type: "application/pdf" }),
-    );
+    formData.append("offerLetter", validPdfFile());
 
     const response = await postOffer(
       new Request("http://test", { method: "POST", body: formData }),

@@ -14,9 +14,11 @@ import {
 } from "@/server/state-machine/executor";
 import {
   EmptyFileError,
+  FileContentMismatchError,
   FileTooLargeError,
   UnsupportedFileTypeError,
 } from "@/server/documents/store";
+import { InfectedFileError, ScanUnavailableError } from "@/server/documents/clamav";
 
 /** `case.open`: same capability as POST /api/cases — MASTER_PROMPT.md
  * §3's "Open case / upload offer letter" is one row/one capability.
@@ -91,12 +93,19 @@ export async function POST(
     if (
       err instanceof EmptyFileError ||
       err instanceof FileTooLargeError ||
-      err instanceof UnsupportedFileTypeError
+      err instanceof UnsupportedFileTypeError ||
+      err instanceof FileContentMismatchError
     ) {
       return NextResponse.json(
         { error: "invalid_file", message: err.message },
         { status: 400 },
       );
+    }
+    if (err instanceof InfectedFileError) {
+      return NextResponse.json({ error: "file_rejected_by_scan" }, { status: 422 });
+    }
+    if (err instanceof ScanUnavailableError) {
+      return NextResponse.json({ error: "scan_unavailable" }, { status: 503 });
     }
     if (
       err instanceof CaseNotFoundError ||

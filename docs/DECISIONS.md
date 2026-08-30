@@ -672,3 +672,135 @@ year, which happened once while building this module. Deriving `year`
 from the already-uniqueness-guaranteed `startSequence` fixes it without
 touching `createSemesterFixture()`'s own default (other, lower-volume
 callers still get one).
+
+---
+
+### D-036 — 2026-08-30 — Hand-rolled clamd INSTREAM client, no npm dependency
+
+**Decision:** `src/server/documents/clamav.ts`/`clamav-protocol.ts`
+implement clamd's INSTREAM wire protocol directly over `node:net`, split
+into a pure byte-framing half (unit-testable, no socket) and a thin
+I/O half.
+
+**Why:** The project's dependency list (`package.json`) is deliberately
+lean — every existing dependency has one clear job, no general-purpose
+grab-bag utility libraries. The INSTREAM protocol itself is small (a
+command string, length-prefixed chunks, a one-line response to parse) —
+implementing it directly avoids taking on an unfamiliar third-party
+package's maintenance status, API stability, and transitive dependencies
+for what's genuinely about 80 lines of protocol logic. Consistent with
+the same reasoning behind the argon2/nodemailer/pg choices already in
+the dependency list: each solves one narrow problem this codebase
+actually has, nothing broader.
+
+---
+
+### D-037 — 2026-08-30 — Magic-byte sniffing is hand-written, scoped to exactly the three allowed types
+
+**Decision:** `src/server/documents/magic-bytes.ts` checks byte
+signatures for `application/pdf`/`image/jpeg`/`image/png` only, rather
+than adding a general file-type-sniffing library.
+
+**Why:** `ALLOWED_MIME` (`.env.example`) only ever configures these
+three types — a general sniffing library would detect dozens of formats
+this system will never accept, at the cost of a dependency whose ESM/
+CJS interop has historically been troublesome in some popular packages
+of this kind. Three signature checks is a small, stable, fully
+own-code surface that changes only if `ALLOWED_MIME`'s policy itself
+changes.
+
+---
+
+### D-038 — 2026-08-30 — ClamAV is mocked in the fast test suite, proven for real only via `docker compose`
+
+**Decision:** `tests/integration/setup.ts` mocks
+`@/server/documents/clamav`'s `scanBuffer()` to report clean by default
+(via `vi.mock(..., importOriginal)`, keeping the real error classes so
+`instanceof` checks and per-test override still work). The real clamd
+protocol is exercised only during this module's `docker compose`
+verification, against the compose stack's real `clamav` service,
+including a genuine EICAR test-string positive.
+
+**Why:** Same boundary M02 already drew around `sendMail()` — this
+project's fast dev-loop test containers (temp Postgres/Redis) don't
+include a real ClamAV instance, and its virus-database load takes
+minutes on first boot per the compose healthcheck's own
+`start_period: 180s`, which is a real cost worth avoiding on every
+`pnpm test:integration` run. The mock only ever needs to answer "clean"
+or "throw"; the actual scanning correctness (does clamd really detect a
+real threat) is a property of ClamAV itself, not of this application's
+code, so proving it once against the real service is enough — repeating
+it on every fast test run wouldn't catch a different class of bug.
+
+---
+
+### D-039 — 2026-08-30 — Uploads fail closed if the virus scan can't be completed
+
+**Decision:** `scanBuffer()` throws `ScanUnavailableError` (rather than
+resolving to a boolean the caller could accidentally treat as "clean")
+whenever the `clamav` service is unreachable, times out, or returns a
+malformed response. `storeDocument()` has no code path that accepts a
+file without a scan actually completing.
+
+**Why:** `MASTER_PROMPT.md` §9 states files are "scanned by ClamAV" as
+a factual property of the system, not a best-effort nicety — treating
+scanner-unavailable as "allow it through" would make that statement
+false exactly when it matters most (an outage). Failing closed means an
+outage blocks uploads (a visible, debuggable failure) rather than
+silently admitting unscanned files (an invisible, dangerous one).
+
+---
+
+### D-040 — 2026-08-30 — Document supersede-on-reupload applies uniformly per `(caseId, type)`
+
+**Decision:** `storeDocument()` marks every existing `ACTIVE` document
+of the same `(caseId, type)` `SUPERSEDED` before inserting the new row,
+for all three `DocumentType` values — not just `OFFER_LETTER`/
+`COMPLETION_CERTIFICATE`.
+
+**Why:** M05's interim writer never did this at all, leaving two
+`ACTIVE` `OFFER_LETTER` rows behind after a resubmission — a real gap
+this module closes. `SUPPORTING_EVIDENCE`'s eventual semantics (the
+restart gate, M10, not built yet) are genuinely unknown; it might want
+multiple concurrent active attachments rather than "latest replaces
+prior." Applying the uniform rule now is the restrictive default (fewer
+concurrently-current documents, not more) — narrowing the `where`
+clause to skip `SUPPORTING_EVIDENCE` later, if M10 needs that, is a
+small additive change, not a rewrite.
+
+---
+
+### D-041 — 2026-08-30 — Download route reuses `case.view_own`/`case.view_any`; no new capability
+
+**Decision:** `GET /api/documents/:id/download` authorizes with the
+same two capabilities the case routes already use, rather than adding a
+`document.download` (or similar) row to `src/server/authz/matrix.ts`.
+
+**Why:** `MASTER_PROMPT.md` §3's eighteen-row capability table has no
+"download document" entry — §2.1's prose lists it as something a
+Student can do, but it isn't one of the table's enumerated permissions.
+Reusing "can this identity see this case" for "can this identity
+download this case's document" is the restrictive, spec-literal
+reading: no new authority surface was invented beyond what §3 actually
+enumerates.
+
+---
+
+### D-042 — 2026-08-30 — BR-10's guard stays stubbed; M06 only wires two of its three legs
+
+**Decision:** Row 9 (`DOCS_PENDING → PENDING_VERIFICATION`) keeps
+`stubGuard("BR-10")` unchanged. M06 adds the completion-certificate
+upload route (so a real `COMPLETION_CERTIFICATE` `Document` row can
+exist alongside the `OFFER_LETTER` one M05 already produces), but
+doesn't attempt a partially-real guard.
+
+**Why:** BR-10 needs all three deliverables — offer letter, completion
+certificate, *and* supervisor evaluation. The third has no data model
+yet (`DocumentType` has no supervisor-evaluation variant, and M08's
+tokenised form submission almost certainly won't be a `Document` row
+the way file uploads are). A guard reading two real legs plus one that
+no code path can ever supply `true` for would make row 9 permanently
+unreachable in practice — its own "success path" test would have to
+fake the missing leg, which isn't meaningfully different from the stub
+it would be replacing. Left fully stubbed until M08 exists to supply
+the third leg for real; the stub's comment now names both M08 and M09.

@@ -5,6 +5,7 @@ import { assignRole } from "./support/prisma-fixtures";
 import { createEligibleStudent } from "./support/offer-fixtures";
 import { openCase, rejectOffer } from "@/server/offers/service";
 import { prisma } from "@/server/db/client";
+import { validPdfFile } from "./support/files";
 
 function offerRequest(fields: {
   companyName?: string;
@@ -29,8 +30,7 @@ function offerRequest(fields: {
   });
 }
 
-const validFile = () =>
-  new File([new Uint8Array([1, 2, 3])], "offer.pdf", { type: "application/pdf" });
+const validFile = validPdfFile;
 
 const validFields = {
   companyName: "Acme Corp",

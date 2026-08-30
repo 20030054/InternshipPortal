@@ -4,6 +4,7 @@ import {
   createStudentFixture,
 } from "./prisma-fixtures";
 import { openCase, submitOffer } from "@/server/offers/service";
+import { validPdfFile } from "./files";
 
 /**
  * A student with 4 CLOSED semesters at/after admission — BR-01 eligible
@@ -42,12 +43,6 @@ const VALID_OFFER_FIELDS = {
   workDescription: "x".repeat(200),
 };
 
-function offerLetterFile(): File {
-  return new File([new Uint8Array([1, 2, 3])], "offer.pdf", {
-    type: "application/pdf",
-  });
-}
-
 /** A case already at OFFER_UNDER_REVIEW, ready for approve/reject —
  * everything up to that point goes through the real service functions
  * (openCase/submitOffer), not a fixture shortcut, since BR-08/BR-09
@@ -60,7 +55,7 @@ export async function createOfferUnderReviewCase(startSequence: number) {
     caseId: kase.id,
     actor: { userId: student.userId, roles: ["STUDENT"] },
     ...VALID_OFFER_FIELDS,
-    offerLetterFile: offerLetterFile(),
+    offerLetterFile: validPdfFile(),
   });
   return { caseId: updated.id, studentUserId: student.userId };
 }

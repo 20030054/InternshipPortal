@@ -91,7 +91,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "DOCS_PENDING",
     to: "PENDING_VERIFICATION",
     actorRole: "SYSTEM",
-    guards: [stubGuard("BR-10")], // TODO(M06/M09): all three deliverables present
+    guards: [stubGuard("BR-10")], // TODO(M08/M09): all three deliverables present — M06 wires the offer-letter/completion-certificate legs' Document rows but leaves this stub, since the third (supervisor evaluation, M08) has no data model yet; see docs/modules/M06.md
     requiresReason: false,
     emitsEvent: "ALL_DOCS_RECEIVED",
   },
