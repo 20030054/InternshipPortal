@@ -17,7 +17,7 @@ in the code at the point it matters.
 | OQ-09 | Does a waiver appear on the transcript differently from a pass? | M11 | Registrar | Open |
 | OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
 | OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04, M05 | Focal Person / whoever designed the process | Open — restrictive default applied, now with a real implementation behind it |
-| OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | Open — restrictive default applied |
+| OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | **Resolved in M11** — see resolution log |
 | OQ-13 | Confirm the total programme length in semesters used for the graduation boundary (G2/BR-17) — currently 8, inferred only from §15's seed-data hint ("students across semesters 3 to 8"), never stated directly. Arose implementing M10. | M10 | Registrar / HoD | Open — restrictive default applied |
 
 ## Resolution log
@@ -90,6 +90,24 @@ this reading before building the waiver routes; if it turns out a
 waiver *should* touch an existing case's state (e.g. to mark it
 superseded), that's an additive transition-table entry, not a rewrite of
 the `waivers` table M01 already built.
+
+**Update from M11 — resolved the other way, on concrete evidence, not a
+guess:** a waiver genesis-inserts a real `Case` row directly in
+`WAIVER_REQUESTED` and drives it through four new transition-table rows
+to `WAIVER_GRANTED`/`WAIVER_DENIED`. Three pieces of pre-existing
+evidence, found while building this module, argue against the M04-era
+restrictive default: (1) M01's own `cases_one_nonterminal_per_student`
+partial unique index already excludes `WAIVER_GRANTED`/`WAIVER_DENIED`
+from "non-terminal," alongside `CLOSED_PASS`/`CLOSED_INCOMPLETE`/
+`WITHDRAWN`/`RESTART_DENIED` — no reason to hand-carve those two values
+out of a real index unless a real row was expected to hold them; (2)
+M04's own `TERMINAL_CASE_STATES` (`src/server/state-machine/types.ts`)
+already listed both values as dead code, anticipating exactly this; (3)
+BR-22's "attach supporting documentation" needs a `Document` row, and
+`Document.caseId` is `NOT NULL` — a case-independent waiver would have
+had nowhere for the evidence file to live without a schema change this
+module didn't need to make. See docs/modules/M11.md "Resolving OQ-12"
+for the full reasoning and the four new transition rows.
 
 ### OQ-08 — restrictive default applied in M08
 

@@ -19,12 +19,17 @@ import {
  * docs/modules/M04.md for the full table with rationale per row; this
  * file is the executable version of that same table.
  *
- * `WAIVER_*` states are deliberately absent as transition targets — see
- * OPEN_QUESTIONS.md OQ-12. `ELIGIBILITY_PENDING -> ELIGIBLE` now has a
- * real caller (M05's `openCase()`) — see OQ-11.
+ * `ELIGIBILITY_PENDING -> ELIGIBLE` now has a real caller (M05's
+ * `openCase()`) — see OQ-11.
  *
  * As of M09, every row's guards are real — no `stubGuard()` remains
  * anywhere in this table.
+ *
+ * `WAIVER_*` rows (M11) resolve OQ-12: a waiver genesis-inserts its own
+ * `Case` directly in `WAIVER_REQUESTED` (same pattern as BR-02's sweep
+ * and M10's restart — no row here for that step, only for the two
+ * signature edges that follow it). See docs/modules/M11.md "Resolving
+ * OQ-12."
  */
 export const TRANSITIONS: readonly Transition[] = [
   // ---- Normal path ----
@@ -199,5 +204,46 @@ export const TRANSITIONS: readonly Transition[] = [
     guards: [],
     requiresReason: true,
     emitsEvent: "RESTART_DENIED",
+  },
+
+  // ---- Waiver path (BR-21 to BR-24) ----
+  // No guards on any of these four: BR-22 (circumstance length, evidence
+  // attached) is enforced at genesis-insert time, before any transition
+  // exists to guard; BR-23 (one waiver per student, ever) is an
+  // unconditional unique constraint, not something a per-transition
+  // guard could check anyway. `WAIVER_GRANTED`/`WAIVER_DENIED` only
+  // being reachable from `WAIVER_COUNTERSIGNED` (never directly from
+  // `WAIVER_REQUESTED`) is what makes all three signatures mandatory.
+  {
+    from: "WAIVER_REQUESTED",
+    to: "WAIVER_COUNTERSIGNED",
+    actorRole: "HOD",
+    guards: [],
+    requiresReason: true,
+    emitsEvent: "WAIVER_COUNTERSIGNED",
+  },
+  {
+    from: "WAIVER_REQUESTED",
+    to: "WAIVER_DENIED",
+    actorRole: "HOD",
+    guards: [],
+    requiresReason: true,
+    emitsEvent: "WAIVER_DENIED",
+  },
+  {
+    from: "WAIVER_COUNTERSIGNED",
+    to: "WAIVER_GRANTED",
+    actorRole: "DEAN",
+    guards: [],
+    requiresReason: true,
+    emitsEvent: "WAIVER_GRANTED",
+  },
+  {
+    from: "WAIVER_COUNTERSIGNED",
+    to: "WAIVER_DENIED",
+    actorRole: "DEAN",
+    guards: [],
+    requiresReason: true,
+    emitsEvent: "WAIVER_DENIED",
   },
 ] as const;

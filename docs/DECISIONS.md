@@ -1301,3 +1301,66 @@ it's an approved placement. The student still submits a real offer
 through the ordinary M05 path, keeping case genesis uniform regardless
 of how a case came to exist. The more restrictive reading: skips no
 business rule.
+
+---
+
+### D-068 — 2026-08-30 — OQ-12 resolved: a waiver genesis-inserts a real `Case` and drives it through four new transition rows
+
+**Decision:** `initiateWaiver()` creates a `Case` row directly in
+`WAIVER_REQUESTED` (same genesis-insert pattern as BR-02's sweep and
+M10's restart). Four new rows join M04's transition table:
+`WAIVER_REQUESTED -> WAIVER_COUNTERSIGNED`/`WAIVER_DENIED` (HOD),
+`WAIVER_COUNTERSIGNED -> WAIVER_GRANTED`/`WAIVER_DENIED` (DEAN). No
+guards on any of the four — BR-22 is enforced at genesis-insert time,
+BR-23 is an unconditional unique constraint, and sequencing (Dean only
+reachable from `WAIVER_COUNTERSIGNED`, never `WAIVER_REQUESTED`
+directly) is what makes all three signatures mandatory.
+
+**Why:** M04 (2026-08-30, same day, earlier session) applied the
+restrictive default the other way — waiver entirely independent of any
+`Case` row — because nothing forced an answer then. Building this
+module surfaced three pieces of pre-existing evidence that settle it:
+M01's own `cases_one_nonterminal_per_student` index already excludes
+`WAIVER_GRANTED`/`WAIVER_DENIED` from "non-terminal," M04's own
+`TERMINAL_CASE_STATES` already lists both as dead code anticipating
+real rows, and `Document.caseId` being `NOT NULL` means BR-22's
+"attach supporting documentation" needed a real case to attach to
+regardless. This isn't guessing past an open question — it's reading
+what the schema and M04's own types already committed to and
+completing it consistently. See docs/modules/M11.md "Resolving OQ-12."
+
+---
+
+### D-069 — 2026-08-30 — A failed evidence upload deletes the just-created genesis `Case`, the one place in this codebase a `Case` row is ever deleted
+
+**Decision:** `initiateWaiver()` creates the `Case` row, then calls
+`storeDocument()`. If that throws (bad file type, infected, oversized —
+routine failure modes), the `Case` row is deleted before the error
+propagates, and the `Waiver` row is never created.
+
+**Why:** `Document.caseId` is required, so the `Case` must exist before
+`storeDocument()` can run — there's no way to validate the file first.
+But `waivers.student_id` is uniquely constrained, so if the `Case` were
+left behind after a failed upload, every future attempt for that
+student would find "already has a waiver's case" with no way to
+retry — the exact class of bug M09's `awardGrade()` ordering fix
+caught (D-057), one step earlier in the pipeline. Deleting a genesis
+`Case` row is otherwise unprecedented — every other module only ever
+transitions, never deletes — but safe here specifically because this
+row never passed through the transition executor (no `CaseEvent`, no
+trigger-guarded write) and nothing else can reference it yet, since the
+`Waiver` row itself is only created after the document succeeds.
+
+---
+
+### D-070 — 2026-08-30 — `case.view_any` covers BR-24's waiver-visibility list; no new `waiver.view` capability
+
+**Decision:** `GET /api/waivers` requires `case.view_any` (FOCAL/HOD/
+DEAN), not a new capability.
+
+**Why:** Unlike M09's `grade.reverse` and M10's `escalation.rule_restart`
+(genuine gaps — no existing capability covered a distinct action the
+master prompt's own table never named), this isn't a gap: `case.view_any`
+already means exactly "FOCAL/HOD/DEAN can view any case," and a waiver
+is now a real `Case` row (D-068). Reusing an existing capability that
+already fits, not inventing a twentieth one.

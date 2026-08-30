@@ -1,21 +1,22 @@
 # Progress
 
-**Current module:** M11 — up next, not started
+**Current module:** M12 — up next, not started
 **Last session:** 2026-08-30
 **Build status:** green (`docker compose up --build` succeeds from a clean
 volume state; migrations applied against the compose-network Postgres and
 `scit_app` provisioned; `/api/ready` returns 200 with database and redis
-both `ok: true`; the full M10 arc — a same-company restart request
-correctly DENIED at the door with a real `RestartRequest` row and Dean
-escalation, a flagged (fuzzy) match blocked from countersigning until an
-explicit override, the new linked case (ELIGIBLE, `previousCaseId` set,
-no company), an explicit HoD denial, a same-account (G5) countersign
-rejection that leaves the request PENDING rather than denying it, and
-`escalations` confirmed append-only at the privilege level — exercised
-directly against the real compose-network database, not just in tests.
-`pnpm lint`, `pnpm typecheck`, `pnpm test` [185/185], `pnpm test:integration`
-[266/266] all pass, confirmed on two consecutive freshly-recreated temp
-Postgres/Redis runs.)
+both `ok: true`; the full M11 arc — a genesis-inserted `Case` in
+`WAIVER_REQUESTED`, a supporting-evidence document stored, HoD
+countersignature (outcome stays `PENDING`, case advances to
+`WAIVER_COUNTERSIGNED`), Dean's final approval (`WAIVER_GRANTED`, all
+three distinct signers recorded on one `Waiver` row), a Dean attempting
+to skip the HoD stage correctly rejected, an HoD denial and a Dean
+denial each ending the waiver with no retry possible afterward, and a
+rejected evidence upload leaving no orphaned `Case` row behind —
+exercised directly against the real compose-network database, not just
+in tests. `pnpm lint`, `pnpm typecheck`, `pnpm test` [185/185],
+`pnpm test:integration` [290/290] all pass, confirmed on two consecutive
+freshly-recreated temp Postgres/Redis runs.)
 
 ## Completed modules
 - [x] M00 Repo + Docker skeleton
@@ -29,87 +30,80 @@ Postgres/Redis runs.)
 - [x] M08 Supervisor evaluation
 - [x] M09 Verification and grading
 - [x] M10 The restart gate
-- [ ] M11 The waiver path  <- up next, not started
+- [x] M11 The waiver path
+- [ ] M12 Notifications and SLA escalation  <- up next, not started
 
 ## Where I stopped
-Implemented M10 in full per `/docs/modules/M10.md`: the workflow around
-the four restart guards M04 already built for real (G1 different
-organisation, G2 time remains, G4 restart cap, G5 distinct signers).
-Five routes (`restart-request`, `restart-requests` list,
-`countersign`, `deny`, `escalate`) plus `src/server/restart/service.ts`
-— `requestRestart()` always produces a real `RestartRequest` row
-(`PENDING` on success, `DENIED` with the failing guard's detail if
-G1/G2/G4 rejects it outright), `countersignRestart()` creates the new
-linked `Case` (genesis insert, `ELIGIBLE`, `previousCaseId` set) only
-*after* the transition itself succeeds — same ordering lesson as M09's
-`awardGrade()` — `denyRestart()` and `escalateRestart()` round out
-BR-18's denial-then-Dean-ruling path.
+Implemented M11 in full per `/docs/modules/M11.md`: the three-signature
+waiver workflow (BR-21 to BR-24). This module resolved OQ-12 (open
+since M04) the opposite way from its restrictive default — a waiver
+*does* drive real `cases.state` transitions, not an independent
+`waivers`-table-only workflow — on concrete evidence found while
+building it, not a guess: M01's own `cases_one_nonterminal_per_student`
+index already excludes `WAIVER_GRANTED`/`WAIVER_DENIED` from
+"non-terminal," M04's own `TERMINAL_CASE_STATES` already listed both as
+dead code anticipating real rows, and `Document.caseId` being `NOT NULL`
+meant BR-22's "attach supporting documentation" needed a real case to
+attach to regardless (D-068).
 
-G1's fuzzy-match half (explicitly deferred to this module by
-`differentOrganization`'s own M04 doc comment) is now real:
-`src/server/companies/match.ts` (new, dependency-free
-Levenshtein-ratio similarity) plus an exact-registration-number check
-added to the guard itself. A flagged (similar-but-not-exact) match
-doesn't block the request — it requires the HoD to pass
-`acknowledgeFlaggedMatch: true` at countersign time, or the route 400s.
-G2 needed a graduation-boundary constant nowhere stated in
-`MASTER_PROMPT.md` — `GRADUATION_BOUNDARY_SEMESTERS = 8`
-(`src/server/roster/eligibility.ts`), inferred only from §15's seed-data
-line ("students across semesters 3 to 8"); logged as OQ-13, not guessed
-past silently.
+`initiateWaiver()` (`src/server/waivers/service.ts`) genesis-inserts a
+`Case` directly in `WAIVER_REQUESTED` (same pattern as BR-02's sweep and
+M10's restart), stores the mandatory supporting-evidence document, then
+creates the `Waiver` row. Four new rows joined M04's transition table:
+`WAIVER_REQUESTED -> WAIVER_COUNTERSIGNED`/`WAIVER_DENIED` (HOD),
+`WAIVER_COUNTERSIGNED -> WAIVER_GRANTED`/`WAIVER_DENIED` (DEAN) — the
+Dean only ever reachable from `WAIVER_COUNTERSIGNED`, never directly
+from `WAIVER_REQUESTED`, which is what makes all three signatures
+mandatory and proves the module's own done-criterion ("a waiver cannot
+be granted with two signatures"). Six routes:
+`POST /api/students/:id/waiver` (initiate, multipart), `GET /api/waivers`
+(BR-24's visibility list, reusing `case.view_any` rather than a new
+capability — D-070), and four decision routes
+(`countersign`/`hod-deny`/`approve`/`dean-deny`) keyed on the waiver's
+own id.
 
-Two real bugs caught and fixed before they became test flakes or
-production incidents: BR-20's "the failed case remains
-`CLOSED_INCOMPLETE` forever" is about `case_events`' history, not the
-live `state` column — M04's own transition table already walks the
-failed case to `RESTART_AUTHORIZED`, and a first draft of this module's
-own test asserted the literal (wrong) reading (D-063). And a genuine,
-previously-invisible test-fixture bug: `computeEligibility()`'s
-DB-wide, unbounded "every CLOSED semester at or above admission"
-counting had never been exercised in the *upper-bound* direction before
-G2 — every prior module only checked a one-directional boolean, immune
-to over-counting. M10's tests now reserve a dedicated 41000-41999
-block, the one open window between `BR02_auto_enrollment_sweep`'s
-ceiling (40_004) and `M03_eligibility_route_ownership`'s floor (50_000)
-— see D-064 for the two failed attempts (a low block that got inflated,
-a very-high block that inflated M03's own test) before landing there.
-
-Also closed a small, real hardening gap, same shape as M09's fix for
-`grade_reversals`: M01 revoked `UPDATE`/`DELETE` on
-`audit_events`/`case_events`/`grades` but never `escalations`, despite
-`Escalation`'s own doc comment already claiming finality. Fixed in this
-module's migration (D-065).
+One real bug caught and fixed before it could manifest, same shape as
+M09's `awardGrade()` ordering lesson (D-057) and M11's own G1
+override-flag design in M10: `Document.caseId` being required means the
+`Case` row must exist *before* `storeDocument()` can run, but a failed
+upload (bad file type, infected, oversized — routine, not rare) would
+otherwise leave that `Case` behind permanently blocking every future
+attempt, since `waivers.student_id` is uniquely constrained. Fixed by
+deleting the just-created `Case` row on a failed upload before the
+error propagates — the one place in this codebase a `Case` row is ever
+deleted, safe specifically because it never passed through the
+transition executor and nothing else can have referenced it yet (D-069).
 
 ## Next action
-Write `/docs/modules/M11.md`, then implement the three-signature waiver
-path (BR-21 to BR-24): Focal Person initiates with a mandatory
-exceptional-circumstances narrative and evidence, HoD counter-signs,
-Dean gives final approval — any one of the three refusing ends it. The
-`Waiver` table (M01) is already built and unused, keyed directly to
-`student_id`, no `case_id` at all — OQ-12 (open, restrictive default
-applied in M04) reads the waiver workflow as entirely independent of
-any `Case` row's state, driven only through `waivers.outcome`
-(`PENDING`/`GRANTED`/`DENIED`) and its three signature timestamps; M11
-should confirm or correct that reading before building the routes. Also
-needs the one-per-student constraint (BR-23) and permanent visibility
-on the HoD dashboard/annual report (BR-24) — the latter likely just a
-read route at this stage, since M13 (reporting) hasn't been built yet.
+Write `/docs/modules/M12.md`, then implement email templates for every
+status change, BullMQ jobs for reminders, BR-27's Focal Person SLA
+escalation (`SLA_DAYS`, default 10 working days — pending approval or
+verification escalates to the HoD and flags on the dashboard), BR-28's
+supervisor SLA escalation (`SUPERVISOR_SLA_DAYS`, default 14 — two
+reminders then flags for Focal Person intervention, already partially
+scaffolded by M08's `SupervisorToken.reminderCount`/
+`lastReminderSentAt`, unused until now), and an HoD digest email. All
+email content templated and versioned — no ad-hoc strings in services.
+**Done when** an untouched pending approval escalates on schedule in a
+time-travelled test.
 
 ## Blocked on
 - OQ-13 (graduation boundary semester count) — restrictive default (8)
   applied in M10, inferred only from a seed-data hint; needs a real
   Registrar/HoD answer.
-- OQ-12 (waiver states vs. case transitions) — restrictive default
-  applied in M04; M11 should confirm or correct this now.
-- OQ-04 (who holds the Dean role, is there a delegate) — M10's
-  escalation route already requires one live `DEAN`-role account with
-  no delegate mechanism; M11's final waiver signature needs the same
-  answer.
+- OQ-09 (does a waiver appear on the transcript differently from a
+  pass?) — genuinely open; `WAIVER_GRANTED` stays its own distinct
+  terminal `CaseState`, never conflated with `CLOSED_PASS`, precisely so
+  this question can still be answered either way without a rewrite.
+  Relevant to M13's reporting/transcript story.
+- OQ-04 (who holds the Dean role, is there a delegate) — both M10's
+  escalation route and M11's final waiver signature already require one
+  live `DEAN`-role account with no delegate mechanism.
 - OQ-03 (confirm `RESTART_CAP` = 1) — the default is live and enforced
   by G4 as of M10; the number itself is still unconfirmed by the HoD.
 - OQ-02 (completion certificate verification standard) — restrictive
   default (any single listed method) applied in M09.
-- OQ-07 (document retention period) — doesn't block M10/M11, but the
+- OQ-07 (document retention period) — doesn't block M11/M12, but the
   vault's eventual purge/retention behavior needs a real answer before
   M14's backup/retention story is complete.
 - OQ-08 (evaluation visibility to students) — restrictive default

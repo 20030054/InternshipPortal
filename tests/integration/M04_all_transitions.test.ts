@@ -436,6 +436,74 @@ describe("M04: every transition in the real table", () => {
       executeTransition(kase.id, "RESTART_DENIED", actor),
     ).rejects.toBeInstanceOf(MissingReasonError);
   });
+
+  it("22. WAIVER_REQUESTED -> WAIVER_COUNTERSIGNED (HOD, reason required)", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_REQUESTED" });
+    const actor = await createUserActor("HOD");
+    const result = await executeTransition(kase.id, "WAIVER_COUNTERSIGNED", actor, {
+      reason: "circumstances reviewed and credible",
+    });
+    expect(result.state).toBe("WAIVER_COUNTERSIGNED");
+  });
+
+  it("22. rejects a missing reason", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_REQUESTED" });
+    const actor = await createUserActor("HOD");
+    await expect(
+      executeTransition(kase.id, "WAIVER_COUNTERSIGNED", actor),
+    ).rejects.toBeInstanceOf(MissingReasonError);
+  });
+
+  it("22. rejects a non-HOD actor", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_REQUESTED" });
+    const actor = await createUserActor("FOCAL");
+    await expect(
+      executeTransition(kase.id, "WAIVER_COUNTERSIGNED", actor, { reason: "attempt" }),
+    ).rejects.toBeInstanceOf(WrongActorRoleError);
+  });
+
+  it("23. WAIVER_REQUESTED -> WAIVER_DENIED (HOD, reason required)", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_REQUESTED" });
+    const actor = await createUserActor("HOD");
+    const result = await executeTransition(kase.id, "WAIVER_DENIED", actor, {
+      reason: "circumstances not credible",
+    });
+    expect(result.state).toBe("WAIVER_DENIED");
+  });
+
+  it("24. WAIVER_COUNTERSIGNED -> WAIVER_GRANTED (DEAN, reason required)", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_COUNTERSIGNED" });
+    const actor = await createUserActor("DEAN");
+    const result = await executeTransition(kase.id, "WAIVER_GRANTED", actor, {
+      reason: "final approval granted",
+    });
+    expect(result.state).toBe("WAIVER_GRANTED");
+  });
+
+  it("24. rejects a non-DEAN actor", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_COUNTERSIGNED" });
+    const actor = await createUserActor("HOD");
+    await expect(
+      executeTransition(kase.id, "WAIVER_GRANTED", actor, { reason: "attempt" }),
+    ).rejects.toBeInstanceOf(WrongActorRoleError);
+  });
+
+  it("24. cannot be reached directly from WAIVER_REQUESTED (the HoD stage cannot be skipped)", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_REQUESTED" });
+    const actor = await createUserActor("DEAN");
+    await expect(
+      executeTransition(kase.id, "WAIVER_GRANTED", actor, { reason: "attempt" }),
+    ).rejects.toThrow();
+  });
+
+  it("25. WAIVER_COUNTERSIGNED -> WAIVER_DENIED (DEAN, reason required)", async () => {
+    const kase = await createCaseFixture({ state: "WAIVER_COUNTERSIGNED" });
+    const actor = await createUserActor("DEAN");
+    const result = await executeTransition(kase.id, "WAIVER_DENIED", actor, {
+      reason: "circumstances insufficient on final review",
+    });
+    expect(result.state).toBe("WAIVER_DENIED");
+  });
 });
 
 describe("M04: WAIVER_* states are never a transition target (OQ-12)", () => {
