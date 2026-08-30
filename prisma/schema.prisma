@@ -38,24 +38,63 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   disabledAt   DateTime? @map("disabled_at") @db.Timestamptz
 
+  // M02: brute-force lockout state (§9 "Sessions and secrets"). Reset to
+  // 0 / null on a successful login; incremented on each failed attempt by
+  // the credentials provider, which sets lockedUntil once the threshold
+  // is reached.
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime? @map("locked_until") @db.Timestamptz
+
+  // M02: bumped on every password change. The JWT session callback
+  // re-reads this on every request and rejects a token whose embedded
+  // value has gone stale — this is the actual mechanism behind "session
+  // invalidation on password change" (§9). See DECISIONS.md.
+  tokenVersion Int @default(0) @map("token_version")
+
   student Student?
 
-  auditEvents          AuditEvent[]     @relation("AuditActor")
-  caseEventsActed      CaseEvent[]      @relation("CaseEventActor")
-  documentsUploaded    Document[]       @relation("DocumentUploadedBy")
-  verificationsDone    Verification[]   @relation("VerificationVerifier")
-  gradesRecommended    Grade[]          @relation("GradeRecommendedBy")
-  gradesAwarded        Grade[]          @relation("GradeAwardedBy")
-  gradeReversalsSigned GradeReversal[]  @relation("GradeReversalDean")
-  restartFocalSigned   RestartRequest[] @relation("RestartFocalSigner")
-  restartHodSigned     RestartRequest[] @relation("RestartHodSigner")
-  waiverFocalSigned    Waiver[]         @relation("WaiverFocalSigner")
-  waiverHodSigned      Waiver[]         @relation("WaiverHodSigner")
-  waiverDeanSigned     Waiver[]         @relation("WaiverDeanSigner")
-  escalationsRuled     Escalation[]     @relation("EscalationDean")
+  auditEvents          AuditEvent[]         @relation("AuditActor")
+  caseEventsActed      CaseEvent[]          @relation("CaseEventActor")
+  documentsUploaded    Document[]           @relation("DocumentUploadedBy")
+  verificationsDone    Verification[]       @relation("VerificationVerifier")
+  gradesRecommended    Grade[]              @relation("GradeRecommendedBy")
+  gradesAwarded        Grade[]              @relation("GradeAwardedBy")
+  gradeReversalsSigned GradeReversal[]      @relation("GradeReversalDean")
+  restartFocalSigned   RestartRequest[]     @relation("RestartFocalSigner")
+  restartHodSigned     RestartRequest[]     @relation("RestartHodSigner")
+  waiverFocalSigned    Waiver[]             @relation("WaiverFocalSigner")
+  waiverHodSigned      Waiver[]             @relation("WaiverHodSigner")
+  waiverDeanSigned     Waiver[]             @relation("WaiverDeanSigner")
+  escalationsRuled     Escalation[]         @relation("EscalationDean")
   roleAssignments      UserRole[]
+  passwordResetTokens  PasswordResetToken[]
 
   @@map("users")
+}
+
+/// M02: password reset flow. Mirrors SupervisorToken's pattern from M01 —
+/// only the hash is stored, the raw token exists only in the email sent
+/// to the user. `usedAt` and `revokedAt` are kept distinct, same as
+/// SupervisorToken: "used" means redeemed by the user, "revoked" means
+/// superseded by a later request without ever being redeemed — collapsing
+/// the two would make an audit trail lie about what actually happened. A
+/// partial unique index (appended in raw SQL, same mechanism as
+/// supervisor_tokens_one_live_per_case) limits each user to one *live*
+/// reset token at a time; requesting again while one is live revokes it
+/// and issues a fresh one rather than allowing two to coexist.
+model PasswordResetToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("password_reset_tokens")
 }
 
 // TODO(OQ-10): if BNU extends this deployment beyond SCIT, a tenant/school

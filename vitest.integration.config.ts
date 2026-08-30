@@ -12,6 +12,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
+    // Mocks @/server/auth/config's `auth` export for every file — a
+    // no-op for suites that never import it (M01's constraint tests),
+    // and what lets M02's route-handler tests stand in a fake session
+    // without running a full HTTP server. See tests/integration/setup.ts.
+    setupFiles: ["tests/integration/setup.ts"],
     // Real network round-trips to Postgres are slower than the mocked
     // unit suite and can be slow to spin up on a cold CI runner.
     testTimeout: 20_000,

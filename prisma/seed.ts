@@ -1,6 +1,10 @@
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { PrismaClient, type RoleName, type SemesterType } from "@prisma/client";
+// Relative, not the "@/*" alias — this file runs directly under tsx from
+// outside src/, and a relative path doesn't depend on tsx's tsconfig-paths
+// resolution working the same way it does under Next's bundler.
+import { hashPassword } from "../src/server/auth/password";
 
 // Deliberately minimal per docs/modules/M01.md: the five roles, one user
 // per non-student role (for local dev login once M02 exists), two
@@ -90,6 +94,35 @@ const STAFF: Array<{ email: string; role: RoleName }> = [
   { email: "admin@example.scit.test", role: "ADMIN" },
 ];
 
+// M02: dev-only fixed password for every seeded account, so local
+// development and the test suite have something to sign in with without
+// a real account-creation flow existing yet (M03's roster import is what
+// actually creates accounts in production). Guarded by NODE_ENV — see
+// setDevPasswordIfMissing below. Never treat this as a real credential;
+// it is deliberately public, in version control, on purpose.
+const DEV_PASSWORD = "dev-password-not-for-prod";
+
+/**
+ * Sets a fixed dev password on a freshly upserted user, but only if
+ * running outside production and only if the account doesn't already
+ * have a password hash (so repeated seed runs don't re-hash argon2 on
+ * every invocation). This is the *only* password-setting logic in the
+ * whole seed script — there is no equivalent path when NODE_ENV is
+ * "production", by design.
+ */
+async function setDevPasswordIfMissing(userId: string): Promise<void> {
+  if (process.env.NODE_ENV === "production") return;
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { passwordHash: true },
+  });
+  if (user.passwordHash) return;
+
+  const passwordHash = await hashPassword(DEV_PASSWORD);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash } });
+}
+
 /** Exported so tests/integration/seed.test.ts can call it directly (twice,
  * to prove idempotency) instead of shelling out to a subprocess. */
 export async function main() {
@@ -141,6 +174,7 @@ export async function main() {
       update: {},
       create: { userId: user.id, roleId },
     });
+    await setDevPasswordIfMissing(user.id);
   }
 
   console.log("[seed] upserting test roster...");
@@ -172,6 +206,14 @@ export async function main() {
         programme: s.programme,
       },
     });
+
+    await setDevPasswordIfMissing(user.id);
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log(
+      `[seed] dev passwords set (NODE_ENV=${process.env.NODE_ENV ?? "unset"}) — never use this build's seeded credentials in production`,
+    );
   }
 
   console.log(

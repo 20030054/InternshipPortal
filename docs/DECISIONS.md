@@ -234,3 +234,88 @@ libssl/openssl version to use... Defaulting to openssl-1.1.x" — a guess
 that may not match what's actually on the base image, risking a runtime
 failure the moment the query engine binary is actually invoked. Installing
 `openssl` lets Prisma detect the real version instead of guessing.
+
+---
+
+### D-015 — 2026-08-30 — JWT sessions with a `tokenVersion` counter, not Auth.js's database adapter
+
+**Decision:** Auth.js is configured with `session: { strategy: "jwt" }`
+and no `adapter`. Session invalidation (password change, role change,
+account disable) is achieved by re-reading `tokenVersion`/roles/
+`disabledAt` from the database on every request (`loadIdentity()`,
+called from both the `jwt` callback and, independently, from
+`getCurrentIdentity()`) rather than by Auth.js's own database-session
+mechanism.
+
+**Why:** The official `@auth/prisma-adapter` expects its own
+`Account`/`Session`/`VerificationToken` tables, none of which this system
+needs — there are no OAuth providers configured (OQ-05 is unanswered, and
+the restrictive default is credentials-only). Adopting the adapter now
+would mean carrying three unused tables and a dependency on their exact
+shape purely on the chance OIDC arrives later; adding the adapter *when*
+an OAuth provider is actually configured is a smaller, better-timed
+change than removing three empty tables would be. The `tokenVersion`
+counter achieves the one thing that pattern actually exists for here
+(forced invalidation) with a single integer column.
+
+---
+
+### D-016 — 2026-08-30 — `requireCapability()` re-validates identity independently of Auth.js's `jwt`-callback-returns-`null` behavior
+
+**Decision:** `getCurrentIdentity()` (src/server/auth/current-identity.ts)
+re-reads the user's `tokenVersion` from the database and compares it to
+the session's embedded copy, rejecting a mismatch — even though the `jwt`
+callback in `config.ts` already does its own freshness check and can
+return `null` to invalidate a token at the Auth.js level.
+
+**Why:** Auth.js v5's `jwt` callback return type is documented as
+`Awaitable<JWT | null>`, and returning `null` is Auth.js's supported
+mechanism for invalidating a session server-side — this is real and used
+here too. But making `requireCapability()`'s security guarantee depend
+entirely on trusting that one framework behavior, in a beta-tagged
+package (`next-auth@5.0.0-beta.32` — 5.x has no stable release), was a
+risk not worth taking for the property M02's own done criterion is
+built around. The second check costs one extra indexed read and makes the
+guarantee hold regardless of exactly how Auth.js's internals evolve.
+
+---
+
+### D-017 — 2026-08-30 — `CredentialsSignin` (and anything else `authorize()` needs) imported from `@auth/core`, not `next-auth`
+
+**Decision:** `src/server/auth/authorize-credentials.ts` imports
+`CredentialsSignin` from `@auth/core/errors`, and `@auth/core` is an
+explicit direct dependency pinned to the same version `next-auth`
+resolves it to (0.41.3) — not imported from the top-level `next-auth`
+package.
+
+**Why:** Discovered while writing M02_login_lockout.test.ts:
+`next-auth`'s main entry point transitively imports `next/server`, which
+fails to resolve when the module graph is loaded outside Next.js's own
+bundler — exactly the situation for a Vitest test that imports
+`authorize-credentials.ts` directly rather than going through a Next.js
+route. `@auth/core` is the framework-agnostic package `next-auth` itself
+re-exports this class from, so switching the import source changes
+nothing about the actual error type or behavior — it just avoids pulling
+in Next.js-specific code that a plain Vitest process can't load.
+
+---
+
+### D-018 — 2026-08-30 — Password minimum length, lockout threshold/window, reset token TTL, and session lifetime are implementation defaults, not open questions
+
+**Decision:** None of the following are listed in `OPEN_QUESTIONS.md`;
+all are logged here as defensible defaults a future session may revisit
+if the department has an actual policy preference:
+- Minimum password length: 12 characters.
+- Brute-force lockout: 5 failed attempts, 15-minute lock.
+- Login rate limit: 10 attempts / 15 minutes / IP.
+- Password-reset rate limit: 5 requests / hour / IP.
+- Password-reset token TTL: 1 hour, single-use.
+- Session lifetime: 8 hours, sliding renewal every 1 hour of activity.
+
+**Why:** `MASTER_PROMPT.md` §12's open-questions list is for things
+genuinely blocked on departmental policy (deadline dates, the restart cap,
+who holds the Dean role). These six numbers are security engineering
+defaults with no policy content — nobody at SCIT has an opinion on
+argon2 password length the way they have one on the restart cap. Treating
+them as open questions would just be a way of not deciding something that
+was always the implementer's call.

@@ -1,5 +1,6 @@
 import { FlatCompat } from "@eslint/eslintrc";
 import security from "eslint-plugin-security";
+import requireCapabilityOnMutation from "./eslint-rules/require-capability-on-mutation.mjs";
 
 const compat = new FlatCompat({
   baseDirectory: import.meta.dirname,
@@ -29,13 +30,21 @@ const config = [
     },
   },
   {
-    // TODO(M02): once mutating routes exist, add a custom rule here (or a
-    // small local plugin) that fails the build if a route handler under
-    // src/app/api/**/route.ts performs a mutation without a preceding
-    // requireCapability() call — see MASTER_PROMPT.md §9 "Access control".
-    // No mutating routes exist yet in M00, so there's nothing to lint.
+    // MASTER_PROMPT.md §9 "Access control": every mutating route must
+    // call requireCapability() before touching data, enforced by CI, not
+    // just by convention. src/app/api/auth/** is excluded: those routes
+    // are the pre-authentication entry points themselves (sign-in,
+    // password reset) — see docs/modules/M02.md's routes-table footnote
+    // for why requireCapability()'s "must already be authenticated"
+    // contract doesn't apply to them.
     files: ["src/app/api/**/route.ts"],
-    rules: {},
+    ignores: ["src/app/api/auth/**"],
+    plugins: {
+      local: { rules: { "require-capability-on-mutation": requireCapabilityOnMutation } },
+    },
+    rules: {
+      "local/require-capability-on-mutation": "error",
+    },
   },
 ];
 
