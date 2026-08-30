@@ -38,6 +38,14 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   disabledAt   DateTime? @map("disabled_at") @db.Timestamptz
 
+  // M08: nullable and not backfilled — no field for a human's display
+  // name existed anywhere before this module needed one (the public
+  // supervisor evaluation page has to show "the student name"). See
+  // docs/modules/M08.md "Scope decisions" for why this landed on User
+  // rather than Student, and why it's optional rather than a blocking
+  // migration.
+  fullName String? @map("full_name")
+
   // M02: brute-force lockout state (§9 "Sessions and secrets"). Reset to
   // 0 / null on a successful login; incremented on each failed attempt by
   // the credentials provider, which sets lockedUntil once the threshold
@@ -278,32 +286,32 @@ enum CaseState {
 /// columns here. The offer letter file itself is a `Document` row
 /// (type OFFER_LETTER), not a column.
 model Case {
-  id             String    @id @default(uuid(7)) @db.Uuid
-  studentId      String    @map("student_id") @db.Uuid
-  state          CaseState @default(ELIGIBILITY_PENDING)
-  previousCaseId String?   @map("previous_case_id") @db.Uuid
-  companyId      String?   @map("company_id") @db.Uuid
-  plannedStart   DateTime? @map("planned_start") @db.Date
-  plannedEnd     DateTime? @map("planned_end") @db.Date
-  actualStart    DateTime? @map("actual_start") @db.Date
-  actualEnd      DateTime? @map("actual_end") @db.Date
+  id                 String    @id @default(uuid(7)) @db.Uuid
+  studentId          String    @map("student_id") @db.Uuid
+  state              CaseState @default(ELIGIBILITY_PENDING)
+  previousCaseId     String?   @map("previous_case_id") @db.Uuid
+  companyId          String?   @map("company_id") @db.Uuid
+  plannedStart       DateTime? @map("planned_start") @db.Date
+  plannedEnd         DateTime? @map("planned_end") @db.Date
+  actualStart        DateTime? @map("actual_start") @db.Date
+  actualEnd          DateTime? @map("actual_end") @db.Date
   // BR-07: student-submitted, overwritten on resubmission — no history of
   // prior attempts' text is kept, only the state-transition history
   // (case_events) already gives that. Length floor is also a DB CHECK
   // appended in raw SQL (this migration) as defence in depth.
-  workDescription    String?  @map("work_description")
+  workDescription    String?   @map("work_description")
   // BR-09: the Focal Person's mandatory relevance judgement, set only at
   // approval. The "reason stored" half of BR-09 is read as the same
   // mandatory reason the APPROVED transition already requires — see
   // docs/modules/M05.md.
-  relevanceConfirmed Boolean? @map("relevance_confirmed")
+  relevanceConfirmed Boolean?  @map("relevance_confirmed")
   // M03/BR-02: true only for a case created by the semester-6
   // auto-enrollment sweep (src/server/roster/auto-enrollment-sweep.ts),
   // never set any other way — lets M13's dashboard query "all
   // auto-enrolled cases" directly instead of parsing audit metadata.
-  autoEnrolled   Boolean   @default(false) @map("auto_enrolled")
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  autoEnrolled       Boolean   @default(false) @map("auto_enrolled")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
 
   student       Student  @relation(fields: [studentId], references: [id])
   company       Company? @relation(fields: [companyId], references: [id])
@@ -313,7 +321,7 @@ model Case {
   events                  CaseEvent[]
   documents               Document[]
   supervisorTokens        SupervisorToken[]
-  restartRequestsAsFailed RestartRequest[]  @relation("RestartFailedCase")
+  restartRequestsAsFailed RestartRequest[]   @relation("RestartFailedCase")
   notifications           Notification[]
   grade                   Grade?
   progressLogEntries      ProgressLogEntry[]
@@ -493,6 +501,18 @@ model SupervisorToken {
   usedAt    DateTime? @map("used_at") @db.Timestamptz
   revokedAt DateTime? @map("revoked_at") @db.Timestamptz
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  // M08: who this specific token was actually sent to — Company.contact
+  // (M05) is free text captured for a different purpose and never
+  // validated as an email, so the Focal Person supplies this explicitly
+  // at issuance rather than the route guessing. See docs/modules/M08.md.
+  supervisorEmail String @map("supervisor_email")
+
+  // M08/BR-28: the detection-side state classifyTokenForReminder() and
+  // recordReminderSent() need. The actual reminder-sending job is M12's;
+  // this module only tracks the counter M12's future job will bump.
+  reminderCount      Int       @default(0) @map("reminder_count")
+  lastReminderSentAt DateTime? @map("last_reminder_sent_at") @db.Timestamptz
 
   case       Case        @relation(fields: [caseId], references: [id])
   evaluation Evaluation?

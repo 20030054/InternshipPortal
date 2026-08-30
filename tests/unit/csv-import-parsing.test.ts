@@ -22,6 +22,7 @@ describe("parseRosterCsv", () => {
         programme: "BS Software Engineering",
         admissionSemesterType: "FALL",
         admissionSemesterYear: 2022,
+        fullName: null,
       },
       {
         registrationNumber: "FA22-BSE-002",
@@ -29,8 +30,19 @@ describe("parseRosterCsv", () => {
         programme: "BS Computer Science",
         admissionSemesterType: "SPRING",
         admissionSemesterYear: 2023,
+        fullName: null,
       },
     ]);
+  });
+
+  it("captures fullName when the (optional, M08) column is present", () => {
+    const csv = [
+      `${HEADER},fullName`,
+      "FA22-BSE-001,alice@example.test,BS Software Engineering,FALL,2022,Alice Example",
+    ].join("\n");
+
+    const { rows } = parseRosterCsv(csv);
+    expect(rows[0]?.fullName).toBe("Alice Example");
   });
 
   it("lowercases email and normalises semester type case", () => {

@@ -96,15 +96,15 @@ describe("extra schema-level defence-in-depth constraints", () => {
     const caseId = await createCase(db, studentId, "DOCS_PENDING");
 
     await db.query(
-      `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at)
-       VALUES (gen_random_uuid(), $1, $2, now() + interval '21 days')`,
+      `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at, supervisor_email)
+       VALUES (gen_random_uuid(), $1, $2, now() + interval '21 days', 'supervisor@example.test')`,
       [caseId, `hash-${crypto.randomUUID()}`],
     );
 
     await expect(
       db.query(
-        `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at)
-         VALUES (gen_random_uuid(), $1, $2, now() + interval '21 days')`,
+        `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at, supervisor_email)
+         VALUES (gen_random_uuid(), $1, $2, now() + interval '21 days', 'supervisor@example.test')`,
         [caseId, `hash-${crypto.randomUUID()}`],
       ),
     ).rejects.toMatchObject({
@@ -119,8 +119,8 @@ describe("extra schema-level defence-in-depth constraints", () => {
     const firstId = crypto.randomUUID();
 
     await db.query(
-      `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at)
-       VALUES ($1, $2, $3, now() + interval '21 days')`,
+      `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at, supervisor_email)
+       VALUES ($1, $2, $3, now() + interval '21 days', 'supervisor@example.test')`,
       [firstId, caseId, `hash-${crypto.randomUUID()}`],
     );
     await db.query(
@@ -130,8 +130,8 @@ describe("extra schema-level defence-in-depth constraints", () => {
 
     await expect(
       db.query(
-        `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at)
-         VALUES (gen_random_uuid(), $1, $2, now() + interval '21 days')`,
+        `INSERT INTO supervisor_tokens (id, case_id, token_hash, expires_at, supervisor_email)
+         VALUES (gen_random_uuid(), $1, $2, now() + interval '21 days', 'supervisor@example.test')`,
         [caseId, `hash-${crypto.randomUUID()}`],
       ),
     ).resolves.toMatchObject({ rowCount: 1 });

@@ -926,3 +926,102 @@ the first test in this file started intermittently exceeding 5 seconds
 on ordinary hardware. Not a logic bug in the rule itself (the assertions
 are unchanged); a timing budget that no longer matched real project
 size.
+
+---
+
+### D-049 — 2026-08-30 — `users.full_name`: a real, previously-undiscovered schema gap
+
+**Decision:** Added `User.fullName String?` (nullable, not backfilled),
+and made `src/server/roster/csv-import.ts` accept an optional `fullName`
+CSV column going forward.
+
+**Why:** `MASTER_PROMPT.md` §2.5 requires the public supervisor
+evaluation page to show "the student name" — no field anywhere in the
+schema stored one; `User` only ever had `email`, `Student` only
+`registrationNumber`/`programme`. Nothing before M08 needed to display a
+human name. Nullable rather than a blocking backfill: existing test
+fixtures and any student imported before this column existed would
+otherwise need a rewrite outside this module's scope. The public page
+falls back to `registrationNumber` when `fullName` is unset, so it never
+renders broken, just less friendly. Landed on `User`, not `Student`,
+since a display name isn't conceptually student-specific — a future
+module could reasonably want the same field for Focal/HoD/Dean.
+
+---
+
+### D-050 — 2026-08-30 — Supervisor token: HMAC-signed raw value, SHA-256 hash stored
+
+**Decision:** `generateRawSupervisorToken()` returns `HMAC-SHA256
+(SESSION_SECRET, randomBytes(32))` as the raw token; `hashSupervisorToken()`
+(`SHA-256` of the raw token) is the only thing persisted.
+
+**Why:** `MASTER_PROMPT.md` §9 states supervisor tokens are "HMAC-signed
+... and stored hashed" — read as two separate properties, not one fact
+stated twice. `issuePasswordResetToken()` (M02) already established
+"only the hash is stored" for a structurally similar one-time link, but
+that token was bare random bytes; this one adds the HMAC layer on top
+because the master prompt asks for it here specifically. The practical
+security delta over bare `randomBytes(32)` is small given `node:crypto`'s
+CSPRNG is not the weak link in this design — but the master prompt names
+the property explicitly for this token and not for password reset, so
+it's honored literally rather than treated as redundant.
+
+---
+
+### D-051 — 2026-08-30 — The supervisor's email is a route parameter, not read from `Company.contact`
+
+**Decision:** `POST /api/cases/:id/supervisor-token` requires
+`supervisorEmail` in the request body; nothing reads `Company.contact`
+(M05) to infer it.
+
+**Why:** `Company.contact` is free text captured at offer-submission
+time by the *student*, for a different purpose (the company's general
+contact), and was never validated as an email address — M05's zod
+schema only required `.min(1)`. Treating it as "the supervisor's email"
+here would be guessing both its format and that it's the right person.
+The Focal Person, who is the one deciding to issue a token, supplies the
+address explicitly; `SupervisorToken.supervisorEmail` (new column)
+records it for audit and so a later replacement doesn't need to guess it
+either.
+
+---
+
+### D-052 — 2026-08-30 — BR-28: M08 builds detection, M12 builds delivery
+
+**Decision:** `classifyTokenForReminder()` (pure, given a token's age
+against `SUPERVISOR_SLA_DAYS` and its `reminderCount`, returns none/
+first-reminder-due/second-reminder-due/escalate) and `recordReminderSent()`
+(bumps `reminderCount`/`lastReminderSentAt`) are real and tested. No
+BullMQ job, no actual reminder email, and no automatic "flag the case
+for Focal Person intervention" action exist yet.
+
+**Why:** `MASTER_PROMPT.md` §7 gives M12 "BullMQ jobs for reminders...
+the BR-28 supervisor escalation... email templates... versioned... no
+ad-hoc strings in services" as its own explicit deliverables — a direct
+overlap with M08's own one-line summary. Building a real scheduled job
+and a second, throwaway email-templating scheme here would either
+duplicate M12's future infrastructure or invent a version of it that
+doesn't meet "templated and versioned." Same division-of-labour pattern
+as M04 leaving BR-07/08/09/10/11 as named stubs for M05/M06/M09 to
+replace, and M06 leaving BR-10's third leg to M08: build the part that's
+genuinely this module's job, name the boundary explicitly, leave the
+rest to the module that actually owns it.
+
+---
+
+### D-053 — 2026-08-30 — Evaluation visibility: a config flag read at the route boundary
+
+**Decision:** `SHOW_EVALUATION_TO_STUDENT` (default `false`, new env
+var) gates `GET /api/cases/:id/evaluation` for a Student caller; Focal/
+HoD are never gated by it. Checked directly in the route, not modeled
+as a capability.
+
+**Why:** `MASTER_PROMPT.md` §9 "Privacy" states this exact requirement,
+including the default: "Evaluation comments are visible to Focal Person
+and HoD only, never to the student, unless the department later decides
+otherwise (make this a config flag, defaulted to hidden)." A capability
+would be the wrong shape — capabilities in this codebase answer "can
+this role ever do X," not "can this role do X only when a runtime
+setting says so" — matching how `document.upload_completion_certificate`
+and `case.progress_log_update` stayed simple, unconditional STUDENT
+capabilities while their *routes* carry the state/ownership gating.

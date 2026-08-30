@@ -6,9 +6,15 @@ import type { Prisma, SemesterType } from "@prisma/client";
  * BR-01/OQ-06: roster import, CSV only for now (the restrictive default
  * — see docs/modules/M03.md). Expected columns:
  * registrationNumber, email, programme, admissionSemesterType,
- * admissionSemesterYear. The semester referenced must already exist
- * (created via the semester-configuration route) — import never invents
- * a semester on the fly.
+ * admissionSemesterYear, plus an optional fullName (M08: no field
+ * anywhere stored a student's display name before the public supervisor
+ * evaluation page needed one — see docs/modules/M08.md — added as
+ * optional rather than required so an existing roster file without this
+ * column still imports cleanly; missing fullName just means the
+ * fallback display, the student's registrationNumber, keeps being used).
+ * The semester referenced must already exist (created via the
+ * semester-configuration route) — import never invents a semester on
+ * the fly.
  */
 
 const REQUIRED_COLUMNS = [
@@ -27,6 +33,7 @@ export type RosterRow = {
   programme: string;
   admissionSemesterType: SemesterType;
   admissionSemesterYear: number;
+  fullName: string | null;
 };
 
 /**
@@ -107,6 +114,7 @@ export function parseRosterCsv(content: string): {
       programme: record.programme!.trim(),
       admissionSemesterType: type,
       admissionSemesterYear: year,
+      fullName: record.fullName?.trim() || null,
     });
   });
 
@@ -166,8 +174,11 @@ export async function importRoster(
 
       const user = await prisma.user.upsert({
         where: { email: row.email },
-        update: {},
-        create: { email: row.email },
+        // `undefined` (not `null`) when the row has no fullName --
+        // Prisma leaves the column untouched on update rather than
+        // clearing a real name a prior import already set.
+        update: { fullName: row.fullName ?? undefined },
+        create: { email: row.email, fullName: row.fullName },
       });
 
       await prisma.student.upsert({

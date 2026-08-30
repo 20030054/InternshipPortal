@@ -13,7 +13,7 @@ in the code at the point it matters.
 | OQ-05 | Will BNU provide an OIDC/SAML identity provider, or do we manage passwords? | M02 | BNU IT | Open |
 | OQ-06 | Is the roster imported from an existing SIS, and in what format? | M03 | Registrar | Open |
 | OQ-07 | Document retention period per university policy | M06 | Registrar | Open |
-| OQ-08 | Should students see supervisor evaluation comments? | M08 | HoD | Open |
+| OQ-08 | Should students see supervisor evaluation comments? | M08 | HoD | Open — restrictive default applied (hidden), config flag ready |
 | OQ-09 | Does a waiver appear on the transcript differently from a pass? | M11 | Registrar | Open |
 | OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
 | OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04, M05 | Focal Person / whoever designed the process | Open — restrictive default applied, now with a real implementation behind it |
@@ -89,3 +89,16 @@ this reading before building the waiver routes; if it turns out a
 waiver *should* touch an existing case's state (e.g. to mark it
 superseded), that's an additive transition-table entry, not a rewrite of
 the `waivers` table M01 already built.
+
+### OQ-08 — restrictive default applied in M08
+
+`SHOW_EVALUATION_TO_STUDENT` (env var, default `false`) gates
+`GET /api/cases/:id/evaluation` for a Student caller — exactly the
+interim behaviour `MASTER_PROMPT.md` §9 already specifies ("visible to
+Focal Person and HoD only, never to the student, unless the department
+later decides otherwise (make this a config flag, defaulted to
+hidden)"). This isn't a guess at an unstated default; the master prompt
+gave the default. What's still genuinely open is the *policy* question —
+should the department ever flip it — which stays with the HoD, not
+something this build can answer. Flipping the flag later needs no code
+change, just a deployment config edit.

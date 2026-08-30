@@ -35,9 +35,11 @@ const config = [
     // are the pre-authentication entry points themselves (sign-in,
     // password reset) — see docs/modules/M02.md's routes-table footnote
     // for why requireCapability()'s "must already be authenticated"
-    // contract doesn't apply to them.
+    // contract doesn't apply to them. src/app/api/supervisor/** is
+    // excluded for the same reason: MASTER_PROMPT.md §2.5's Industry
+    // Supervisor has no account at all — see docs/modules/M08.md.
     files: ["src/app/api/**/route.ts"],
-    ignores: ["src/app/api/auth/**"],
+    ignores: ["src/app/api/auth/**", "src/app/api/supervisor/**"],
     plugins: {
       local: { rules: { "require-capability-on-mutation": requireCapabilityOnMutation } },
     },

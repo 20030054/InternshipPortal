@@ -15,9 +15,14 @@ import type {
  * data for route-handler tests to exercise.
  */
 
-export async function createUserFixture(overrides: { email?: string } = {}) {
+export async function createUserFixture(
+  overrides: { email?: string; fullName?: string } = {},
+) {
   return prisma.user.create({
-    data: { email: overrides.email ?? `${randomUUID()}@example.test` },
+    data: {
+      email: overrides.email ?? `${randomUUID()}@example.test`,
+      fullName: overrides.fullName,
+    },
   });
 }
 
