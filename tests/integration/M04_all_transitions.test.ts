@@ -26,11 +26,28 @@ import { createUserActor } from "./support/actor";
  * ids for equality/inequality (BR-12, G5) capture one createUserActor()
  * result and reuse its .userId in both places, rather than creating two
  * separate users and hoping their fake ids happened to differ.
+ *
+ * Rows 1, 2, 4 and 6 now carry M05's real guards (BR-01/07/08/09) rather
+ * than M04's original always-pass stubs — their success-path tests below
+ * pass the minimal valid `context` those guards need. Guard *failure*
+ * paths for those four rows are covered by the dedicated
+ * BR01/BR07/BR08/BR09 test files (through the real routes), not
+ * duplicated here — this file's job is proving each row's (from, to,
+ * actor, reason) shape against the real table, not re-proving what
+ * guards.test.ts and the BR0X files already cover.
  */
+const VALID_OFFER = {
+  companyName: "Acme Corp",
+  companyContact: "hr@acme.test",
+  workDescription: "x".repeat(200),
+  offerLetterDocumentId: "doc-1",
+};
 describe("M04: every transition in the real table", () => {
   it("1. ELIGIBILITY_PENDING -> ELIGIBLE (SYSTEM)", async () => {
     const kase = await createCaseFixture({ state: "ELIGIBILITY_PENDING" });
-    const result = await executeSystemTransition(kase.id, "ELIGIBLE", "eligibility-job");
+    const result = await executeSystemTransition(kase.id, "ELIGIBLE", "eligibility-job", {
+      context: { eligibility: { isEligible: true } },
+    });
     expect(result.state).toBe("ELIGIBLE");
   });
 
@@ -45,7 +62,9 @@ describe("M04: every transition in the real table", () => {
   it("2. ELIGIBLE -> OFFER_SUBMITTED (STUDENT)", async () => {
     const kase = await createCaseFixture({ state: "ELIGIBLE" });
     const actor = await createUserActor("STUDENT");
-    const result = await executeTransition(kase.id, "OFFER_SUBMITTED", actor);
+    const result = await executeTransition(kase.id, "OFFER_SUBMITTED", actor, {
+      context: { offer: VALID_OFFER },
+    });
     expect(result.state).toBe("OFFER_SUBMITTED");
   });
 
@@ -68,6 +87,15 @@ describe("M04: every transition in the real table", () => {
     const actor = await createUserActor("FOCAL");
     const result = await executeTransition(kase.id, "APPROVED", actor, {
       reason: "relevant to the degree, 6 weeks planned",
+      context: {
+        offer: {
+          plannedStart: new Date("2026-06-01"),
+          plannedEnd: new Date("2026-07-13"), // 6 weeks
+          minWeeks: 4,
+          maxWeeks: 8,
+          relevanceConfirmed: true,
+        },
+      },
     });
     expect(result.state).toBe("APPROVED");
   });
@@ -100,7 +128,9 @@ describe("M04: every transition in the real table", () => {
   it("6. OFFER_REJECTED -> OFFER_SUBMITTED (STUDENT, resubmission)", async () => {
     const kase = await createCaseFixture({ state: "OFFER_REJECTED" });
     const actor = await createUserActor("STUDENT");
-    const result = await executeTransition(kase.id, "OFFER_SUBMITTED", actor);
+    const result = await executeTransition(kase.id, "OFFER_SUBMITTED", actor, {
+      context: { offer: VALID_OFFER },
+    });
     expect(result.state).toBe("OFFER_SUBMITTED");
   });
 

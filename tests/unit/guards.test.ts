@@ -3,7 +3,11 @@ import {
   belowRestartCap,
   differentOrganization,
   distinctSigners,
+  durationWithinBounds,
+  eligibilityConfirmed,
+  offerComplete,
   recommenderNotAwarder,
+  relevanceConfirmed,
   stubGuard,
   timeRemains,
 } from "@/server/state-machine/guards";
@@ -197,11 +201,171 @@ describe("distinctSigners (G5)", () => {
 
 describe("stubGuard", () => {
   it("always passes regardless of context", () => {
-    expect(stubGuard("BR-07")(baseCtx())).toEqual({ ok: true });
+    expect(stubGuard("BR-10")(baseCtx())).toEqual({ ok: true });
   });
 
   it("exposes the rule id it stands in for", () => {
-    const guard = stubGuard("BR-09");
-    expect(guard.ruleId).toBe("BR-09");
+    const guard = stubGuard("BR-11");
+    expect(guard.ruleId).toBe("BR-11");
+  });
+});
+
+describe("eligibilityConfirmed (BR-01)", () => {
+  it("fails when eligibility context is missing", () => {
+    expect(eligibilityConfirmed(baseCtx()).ok).toBe(false);
+  });
+
+  it("rejects when computeEligibility() found the student ineligible", () => {
+    const result = eligibilityConfirmed(baseCtx({ eligibility: { isEligible: false } }));
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes when eligible", () => {
+    const result = eligibilityConfirmed(baseCtx({ eligibility: { isEligible: true } }));
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+const completeOffer = {
+  companyName: "Acme Corp",
+  companyContact: "hr@acme.test",
+  workDescription: "x".repeat(200),
+  offerLetterDocumentId: "doc-1",
+};
+
+describe("offerComplete (BR-07)", () => {
+  it("fails when offer context is missing", () => {
+    expect(offerComplete(baseCtx()).ok).toBe(false);
+  });
+
+  it("rejects a missing offer letter document", () => {
+    const result = offerComplete(
+      baseCtx({ offer: { ...completeOffer, offerLetterDocumentId: null } }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("offer letter file");
+  });
+
+  it("rejects a blank company name", () => {
+    const result = offerComplete(baseCtx({ offer: { ...completeOffer, companyName: "  " } }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("company name");
+  });
+
+  it("rejects a blank company contact", () => {
+    const result = offerComplete(
+      baseCtx({ offer: { ...completeOffer, companyContact: "" } }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("company contact");
+  });
+
+  it("rejects a work description under 200 characters", () => {
+    const result = offerComplete(
+      baseCtx({ offer: { ...completeOffer, workDescription: "x".repeat(199) } }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toContain("work description");
+  });
+
+  it("passes at exactly 200 characters with every other field present", () => {
+    const result = offerComplete(baseCtx({ offer: completeOffer }));
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("reports every missing field together, not just the first", () => {
+    const result = offerComplete(
+      baseCtx({
+        offer: {
+          companyName: "",
+          companyContact: "",
+          workDescription: "",
+          offerLetterDocumentId: null,
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toContain("offer letter file");
+      expect(result.reason).toContain("company name");
+      expect(result.reason).toContain("company contact");
+      expect(result.reason).toContain("work description");
+    }
+  });
+});
+
+describe("durationWithinBounds (BR-08)", () => {
+  const bounds = { minWeeks: 4, maxWeeks: 8 };
+
+  it("fails when planned dates or bounds are missing", () => {
+    expect(durationWithinBounds(baseCtx()).ok).toBe(false);
+  });
+
+  it("rejects an end date not after the start date", () => {
+    const result = durationWithinBounds(
+      baseCtx({
+        offer: {
+          ...bounds,
+          plannedStart: new Date("2026-06-01"),
+          plannedEnd: new Date("2026-06-01"),
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects a duration under the minimum", () => {
+    const result = durationWithinBounds(
+      baseCtx({
+        offer: {
+          ...bounds,
+          plannedStart: new Date("2026-06-01"),
+          plannedEnd: new Date("2026-06-15"), // 2 weeks
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("rejects a duration over the maximum", () => {
+    const result = durationWithinBounds(
+      baseCtx({
+        offer: {
+          ...bounds,
+          plannedStart: new Date("2026-06-01"),
+          plannedEnd: new Date("2026-09-01"), // ~13 weeks
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes a duration within bounds", () => {
+    const result = durationWithinBounds(
+      baseCtx({
+        offer: {
+          ...bounds,
+          plannedStart: new Date("2026-06-01"),
+          plannedEnd: new Date("2026-07-13"), // 6 weeks
+        },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe("relevanceConfirmed (BR-09)", () => {
+  it("rejects when omitted", () => {
+    expect(relevanceConfirmed(baseCtx()).ok).toBe(false);
+  });
+
+  it("rejects when explicitly false", () => {
+    const result = relevanceConfirmed(baseCtx({ offer: { relevanceConfirmed: false } }));
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes when explicitly true", () => {
+    const result = relevanceConfirmed(baseCtx({ offer: { relevanceConfirmed: true } }));
+    expect(result).toEqual({ ok: true });
   });
 });

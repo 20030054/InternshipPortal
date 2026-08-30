@@ -520,3 +520,155 @@ audit or a test asserting "row 4 still carries its BR-08/BR-09 stubs")
 without adding a discriminated stub-registry type. Also incidentally
 avoids an ESLint unused-parameter warning that an underscore-prefixed
 `_ruleId` would otherwise have needed.
+
+---
+
+### D-029 — 2026-08-30 — Offer-letter fields land on `cases`, not a dedicated `offers` table
+
+**Decision:** `work_description` and `relevance_confirmed` are new
+nullable columns directly on `cases` (migration
+`20260830130000_offer_fields`). Company name/contact use the existing
+`Company.name`/`Company.contact` (M01) — no new columns needed for those.
+
+**Why:** M01 explicitly deferred this placement decision to M05 (see its
+comment on `model Case`). An offer is 1:1 with its case at any given
+moment — a rejection-then-resubmission overwrites the same fields, and
+nothing in `MASTER_PROMPT.md` asks for a history of each submission
+attempt's exact text, only a history of the state transitions, which
+`case_events` already gives for free. A dedicated `offers` extension
+table would only add a join for no real benefit at this module's scope.
+
+---
+
+### D-030 — 2026-08-30 — The offer letter file gets a minimal interim writer, not M06's real pipeline
+
+**Decision:** `src/server/documents/store.ts` writes uploaded files
+directly: MIME allowlist check, size cap, SHA-256 checksum, UUID storage
+key, written to `UPLOAD_DIR` outside the web root, a `Document` row
+created. It does **not** do magic-byte sniffing, a ClamAV scan, or
+expose a download route.
+
+**Why:** BR-07 requires "the offer letter file" to exist before a
+submission is valid, but `MASTER_PROMPT.md` §7 puts the hardened upload
+pipeline (sniffing, ClamAV, the authenticated streaming download route)
+in M06, deliberately *after* M05. Waiting for M06 to build offer
+submission at all would block this module on one not-yet-built later
+module; guessing at M06's own internals to build them early would risk
+redoing that work. The interim writer already produces the exact same
+`Document` row shape M06 will scan and serve — M06 hardens the write
+path in place and adds the read path, without this module's callers or
+schema changing shape. Same pattern as M04's guard stubs (D-027): do
+the part that's genuinely this module's job now, mark the boundary
+explicitly, let the later module fill in the rest.
+
+---
+
+### D-031 — 2026-08-30 — BR-09's "mandatory field... with the reason stored" is one field, not two
+
+**Decision:** Approval requires a boolean `relevanceConfirmed: true`
+(the "mandatory field" BR-09 names) plus the already-mandatory approval
+`reason` (M04's `requiresReason: true` on this row) — read as the "reason
+stored" BR-09 also asks for. No second free-text "why is this relevant"
+field was added.
+
+**Why:** A dedicated relevance-reason field would duplicate the
+already-mandatory approval reason for no stated benefit — BR-09 doesn't
+say the relevance justification must be a *separate* piece of text from
+the approval reason, only that a reason gets stored alongside the
+judgement, which it does either way. Revisit if this reading turns out
+wrong; a dedicated field is additive, not a rewrite.
+
+---
+
+### D-032 — 2026-08-30 — `openCase()` blocks re-opening from any terminal state except `WITHDRAWN`
+
+**Decision:** Beyond BR-06's DB-level "at most one non-terminal case"
+index, `src/server/offers/service.ts`'s `openCase()` also rejects
+opening a new case while the student's most recent case is
+`CLOSED_PASS`, `CLOSED_INCOMPLETE`, `RESTART_DENIED`, or
+`RESTART_AUTHORIZED` — i.e. every state in M04's `TERMINAL_CASE_STATES`
+list except `WITHDRAWN`.
+
+**Why:** `CLOSED_INCOMPLETE`/`RESTART_DENIED`/`RESTART_AUTHORIZED` are
+exactly the restart gate's (M10) territory — a plain re-open would let a
+student route around dual sign-off and the restart cap entirely.
+`CLOSED_PASS` has nothing left to do. `WITHDRAWN` is the one terminal
+state read as a genuine dead end otherwise (a withdrawal happens before
+approval and leaves no grade; `MASTER_PROMPT.md` §1.2 gives no
+indication a withdrawn student can't try again), so it's the only one
+excluded from the block list. `WAIVER_GRANTED`/`WAIVER_DENIED` are
+included in the block list for the same reason `TERMINAL_CASE_STATES`
+includes them — defence in depth against a state that's currently
+unreachable (OQ-12) ever becoming reachable later.
+
+---
+
+### D-033 — 2026-08-30 — `ELIGIBILITY_PENDING → ELIGIBLE` gets its first real caller
+
+**Decision:** `openCase()` creates the case in `ELIGIBILITY_PENDING`
+(the schema default), computes eligibility via M03's
+`computeEligibility()`, and only then calls `executeSystemTransition()`
+with the result — rather than creating the case directly in `ELIGIBLE`
+the way M03's BR-02 sweep does.
+
+**Why:** OQ-11 flagged this transition as defined and tested but
+uncalled, noting that wiring it up later would cost nothing beyond
+adding a caller. This is that caller: BR-01 ("eligibility... never
+self-declared") is now enforced by the same guarded, audited transition
+path as every other state change, not a special-cased direct insert. If
+the student isn't eligible, no case is created at all — a dangling
+`ELIGIBILITY_PENDING` row with no path forward would be worse than no
+row, since nothing in this build sweeps that state.
+
+---
+
+### D-034 — 2026-08-30 — Rows 3 and 7 chain automatically inside the same request
+
+**Decision:** `submitOffer()` calls `executeTransition()` (→
+`OFFER_SUBMITTED`) then immediately `executeSystemTransition()` (→
+`OFFER_UNDER_REVIEW`) in sequence; `approveOffer()` does the same for
+`APPROVED` → `IN_PROGRESS`. Both remain separate, independently audited
+transitions — chaining is a caller-side convenience, not a change to how
+the executor works.
+
+**Why:** `MASTER_PROMPT.md`'s eight-step table lists "queued for review"
+and "internship under way" as immediate consequences of submission and
+approval, not scheduled events — unlike BR-02's semester-6 sweep, which
+explicitly is time-driven. Nothing describes a meaningful waiting state
+between either pair, so a scheduled sweep to advance them would add
+latency and complexity for no described benefit.
+
+---
+
+### D-035 — 2026-08-30 — Test-fixture semester ranges: low, disjoint, ordered blocks — not random ones
+
+**Decision:** `tests/integration/support/offer-fixtures.ts`'s
+`createEligibleStudent()` takes a required `startSequence` parameter;
+every caller reserves its own small hardcoded block (1000, 1500, 2000,
+2500, 3000, 3500, 4000 across M05's test files), all below BR01's 5000s,
+BR02's 10000-40000s and M03's 50000-80000s. `createClosedSemesterChain()`
+(shared, M01/M03) was also changed to derive each semester's `year` from
+`startSequence` instead of leaving it to `createSemesterFixture()`'s own
+random default.
+
+**Why:** Two real bugs, both found by running the full suite fresh
+rather than trusting an in-isolation pass. First: `computeEligibility()`
+counts *every* CLOSED semester in the database at or above a student's
+admission `sequenceNumber` — BR02's sweep and the real eligibility route
+both call it that way (`prisma.semester.findMany()`, unfiltered). This
+fixture's first draft picked a large random `sequenceNumber` range
+(300M-900M) specifically to avoid the column's UNIQUE-constraint
+collision other fixtures worry about — which put it *above* every real
+admission point in the suite, silently inflating BR02_auto_enrollment_
+sweep's and M03_eligibility_route_ownership's counts whenever this
+fixture's file happened to run first alphabetically. Fixed by extending
+the existing "each file owns a disjoint, ordered low block" convention
+those two files already use, one block lower, instead of one large block
+stacked on top. Second: `createSemesterFixture()` defaults `type` to
+`FALL` and `year` to a random value in a 100,000-wide space — creating
+several dozen chains (as M05's fixtures now do) gives a real
+birthday-paradox chance of two `FALL` semesters landing on the same
+year, which happened once while building this module. Deriving `year`
+from the already-uniqueness-guaranteed `startSequence` fixes it without
+touching `createSemesterFixture()`'s own default (other, lower-volume
+callers still get one).

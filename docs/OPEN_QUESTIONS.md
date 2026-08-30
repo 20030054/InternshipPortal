@@ -16,7 +16,7 @@ in the code at the point it matters.
 | OQ-08 | Should students see supervisor evaluation comments? | M08 | HoD | Open |
 | OQ-09 | Does a waiver appear on the transcript differently from a pass? | M11 | Registrar | Open |
 | OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
-| OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04 | Focal Person / whoever designed the process | Open — restrictive default applied |
+| OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04, M05 | Focal Person / whoever designed the process | Open — restrictive default applied, now with a real implementation behind it |
 | OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | Open — restrictive default applied |
 
 ## Resolution log
@@ -57,6 +57,20 @@ is already past this pair for every path currently implemented (student
 action or BR-02's fallback). Still open for a real policy answer; the
 transition being defined and tested means answering it later costs
 nothing beyond wiring up a caller.
+
+**Update from M05:** that caller now exists. `openCase()`
+(`src/server/offers/service.ts`, the `case.open` route) creates the case
+in `ELIGIBILITY_PENDING` and immediately calls the transition, backed by
+a real BR-01 guard reading M03's `computeEligibility()` — so the normal
+path's case genesis is now: student calls `case.open`, which requires
+them to already be eligible (computed, never self-declared) or the call
+is rejected outright with no row created. This still doesn't answer the
+underlying policy question (should *every* student get a dormant
+`ELIGIBILITY_PENDING` case at admission, before they're eligible at
+all?) — it only answers "once a case exists and eligibility holds, how
+does it reach `ELIGIBLE`." Genuinely open; if the answer turns out to be
+yes, that's an additive early-creation sweep (mirroring BR-02's), not a
+rewrite of `openCase()`.
 
 ### OQ-12 — restrictive default applied in M04
 

@@ -270,10 +270,12 @@ enum CaseState {
 /// init migration, which rejects any write to this column that didn't
 /// originate there (BR-25).
 ///
-/// Offer-letter-specific fields (work description, company contact,
-/// programme-relevance judgement — BR-07, BR-09) are deliberately absent
-/// here. docs/modules/M01.md defers that column placement to M05, which
-/// decides whether they land on this table or a dedicated extension.
+/// Offer-letter-specific fields land directly on this table (M05's
+/// decision — see docs/modules/M05.md "Scope decisions"): `Company`
+/// already covers BR-07's name/contact, so only the work description
+/// (BR-07) and the Focal Person's relevance judgement (BR-09) needed new
+/// columns here. The offer letter file itself is a `Document` row
+/// (type OFFER_LETTER), not a column.
 model Case {
   id             String    @id @default(uuid(7)) @db.Uuid
   studentId      String    @map("student_id") @db.Uuid
@@ -284,6 +286,16 @@ model Case {
   plannedEnd     DateTime? @map("planned_end") @db.Date
   actualStart    DateTime? @map("actual_start") @db.Date
   actualEnd      DateTime? @map("actual_end") @db.Date
+  // BR-07: student-submitted, overwritten on resubmission — no history of
+  // prior attempts' text is kept, only the state-transition history
+  // (case_events) already gives that. Length floor is also a DB CHECK
+  // appended in raw SQL (this migration) as defence in depth.
+  workDescription    String?  @map("work_description")
+  // BR-09: the Focal Person's mandatory relevance judgement, set only at
+  // approval. The "reason stored" half of BR-09 is read as the same
+  // mandatory reason the APPROVED transition already requires — see
+  // docs/modules/M05.md.
+  relevanceConfirmed Boolean? @map("relevance_confirmed")
   // M03/BR-02: true only for a case created by the semester-6
   // auto-enrollment sweep (src/server/roster/auto-enrollment-sweep.ts),
   // never set any other way — lets M13's dashboard query "all

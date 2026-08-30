@@ -49,6 +49,17 @@ export async function createSemesterFixture(
  * `startSequence`, `startSequence + 1`, ...) — the shape
  * BR02_auto_enrollment_sweep.test.ts and eligibility tests need to put a
  * student a specific number of completed semesters past admission.
+ *
+ * Also passes an explicit `year` derived from `startSequence` (rather
+ * than leaving `createSemesterFixture`'s own default random year in
+ * play): that default only draws from a 100,000-wide space and always
+ * defaults `type` to `FALL` too, so a suite creating many chains (M05's
+ * offer/eligibility fixtures added a few dozen) has real birthday-paradox
+ * odds of two chains colliding on `(type, year)` — hit exactly once
+ * while building M05. Since callers already keep `startSequence` blocks
+ * disjoint by convention (every semester-creating test file in this
+ * suite reserves its own numeric block), piggybacking `year` on that
+ * same already-enforced uniqueness needs no new coordination.
  */
 export async function createClosedSemesterChain(
   count: number,
@@ -59,6 +70,7 @@ export async function createClosedSemesterChain(
     semesters.push(
       await createSemesterFixture({
         sequenceNumber: startSequence + i,
+        year: 2000 + startSequence + i,
         status: "CLOSED",
       }),
     );

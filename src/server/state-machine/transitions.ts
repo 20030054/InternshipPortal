@@ -3,7 +3,11 @@ import {
   belowRestartCap,
   differentOrganization,
   distinctSigners,
+  durationWithinBounds,
+  eligibilityConfirmed,
+  offerComplete,
   recommenderNotAwarder,
+  relevanceConfirmed,
   stubGuard,
   timeRemains,
 } from "./guards";
@@ -14,8 +18,8 @@ import {
  * file is the executable version of that same table.
  *
  * `WAIVER_*` states are deliberately absent as transition targets — see
- * OPEN_QUESTIONS.md OQ-12. `ELIGIBILITY_PENDING -> ELIGIBLE` is present
- * with no current caller — see OQ-11.
+ * OPEN_QUESTIONS.md OQ-12. `ELIGIBILITY_PENDING -> ELIGIBLE` now has a
+ * real caller (M05's `openCase()`) — see OQ-11.
  */
 export const TRANSITIONS: readonly Transition[] = [
   // ---- Normal path ----
@@ -23,7 +27,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "ELIGIBILITY_PENDING",
     to: "ELIGIBLE",
     actorRole: "SYSTEM",
-    guards: [stubGuard("BR-01")], // TODO: wire to computeEligibility() when a caller exists (OQ-11)
+    guards: [eligibilityConfirmed], // BR-01, real as of M05 (src/server/offers/service.ts openCase())
     requiresReason: false,
     emitsEvent: "ELIGIBILITY_CONFIRMED",
   },
@@ -31,7 +35,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "ELIGIBLE",
     to: "OFFER_SUBMITTED",
     actorRole: "STUDENT",
-    guards: [stubGuard("BR-07")], // TODO(M05): offer letter completeness
+    guards: [offerComplete], // BR-07, real as of M05
     requiresReason: false,
     emitsEvent: "OFFER_SUBMITTED",
   },
@@ -47,7 +51,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "OFFER_UNDER_REVIEW",
     to: "APPROVED",
     actorRole: "FOCAL",
-    guards: [stubGuard("BR-08"), stubGuard("BR-09")], // TODO(M05): duration + relevance
+    guards: [durationWithinBounds, relevanceConfirmed], // BR-08/BR-09, real as of M05
     requiresReason: true,
     emitsEvent: "OFFER_APPROVED",
   },
@@ -63,7 +67,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "OFFER_REJECTED",
     to: "OFFER_SUBMITTED",
     actorRole: "STUDENT",
-    guards: [stubGuard("BR-07")], // TODO(M05): offer letter completeness (resubmission)
+    guards: [offerComplete], // BR-07, real as of M05 (resubmission)
     requiresReason: false,
     emitsEvent: "OFFER_RESUBMITTED",
   },

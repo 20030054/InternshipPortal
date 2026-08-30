@@ -42,6 +42,33 @@ export type TransitionContext = {
     focalSignerId?: string;
     hodSignerId?: string;
   };
+
+  /** Populated only for `ELIGIBILITY_PENDING -> ELIGIBLE` (BR-01). See
+   * M03's `computeEligibility()` — the caller runs that (impure: reads
+   * the roster) and passes just the resulting boolean in here, keeping
+   * this guard itself pure. */
+  eligibility?: {
+    isEligible: boolean;
+  };
+
+  /** Populated only for the offer submission/resubmission and approval
+   * transitions (BR-07/08/09 — M05). Guards read only the subset of
+   * fields their own rule needs. */
+  offer?: {
+    companyName?: string;
+    companyContact?: string;
+    workDescription?: string;
+    /** `null`/absent means no offer-letter Document exists yet. */
+    offerLetterDocumentId?: string | null;
+    plannedStart?: Date;
+    plannedEnd?: Date;
+    /** MIN_INTERNSHIP_WEEKS / MAX_INTERNSHIP_WEEKS, resolved by the
+     * caller from config — see rate-limit.ts/mail/transport.ts for the
+     * same "read env at the call site" convention this follows. */
+    minWeeks?: number;
+    maxWeeks?: number;
+    relevanceConfirmed?: boolean;
+  };
 };
 
 /** A human actor (session-backed) or the system (a scheduled job /
@@ -59,6 +86,26 @@ export type GuardFn = ((ctx: TransitionContext) => GuardResult) & {
    * this undefined. */
   ruleId?: string;
 };
+
+/**
+ * Mirrors `cases_one_nonterminal_per_student`'s `WHERE state NOT IN
+ * (...)` exclusion list exactly (see the M04 migration) — this is the
+ * one place in application code that needs to know the same list, for
+ * `openCase()`'s pre-check (M05). Kept as a literal duplicate rather than
+ * reading the constraint from Postgres at runtime: there is no
+ * information_schema query that's simpler than just keeping these two
+ * lists in sync by hand, and the migration is the actual authority
+ * either way. If you change one, change the other.
+ */
+export const TERMINAL_CASE_STATES: readonly CaseState[] = [
+  "CLOSED_PASS",
+  "CLOSED_INCOMPLETE",
+  "WITHDRAWN",
+  "WAIVER_GRANTED",
+  "WAIVER_DENIED",
+  "RESTART_DENIED",
+  "RESTART_AUTHORIZED",
+];
 
 export type Transition = {
   from: CaseState;
