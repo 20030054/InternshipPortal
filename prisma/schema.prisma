@@ -1,0 +1,543 @@
+// SCIT Internship Portal — data model.
+//
+// This file defines structure only: tables, columns, relations, and the
+// enums that give state/role/grade-type values real database-level
+// constraints (a native Postgres enum rejects an invalid value the same
+// way a CHECK would, and is the idiomatic Prisma mechanism for it — see
+// DECISIONS.md D-010).
+//
+// What this file does NOT define, because Prisma's schema language has no
+// syntax for them, lives in the raw SQL appended to
+// prisma/migrations/*_init/migration.sql instead:
+//   - the partial unique index for BR-06 (one non-terminal case per student)
+//   - the CHECK constraints for BR-17/G3/G5 and BR-23's char-length floor
+//   - the cases.state write-trigger for BR-25
+//   - the two database roles and their grants (including BR-26's
+//     append-only privileges on audit_events / case_events, and BR-14's
+//     immutable grades)
+//
+// See docs/modules/M01.md for the full rationale table.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_MIGRATION_ROLE")
+}
+
+// ---------------------------------------------------------------------
+// Identity and authority
+// ---------------------------------------------------------------------
+
+model User {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  disabledAt   DateTime? @map("disabled_at") @db.Timestamptz
+
+  student Student?
+
+  auditEvents          AuditEvent[]     @relation("AuditActor")
+  caseEventsActed      CaseEvent[]      @relation("CaseEventActor")
+  documentsUploaded    Document[]       @relation("DocumentUploadedBy")
+  verificationsDone    Verification[]   @relation("VerificationVerifier")
+  gradesRecommended    Grade[]          @relation("GradeRecommendedBy")
+  gradesAwarded        Grade[]          @relation("GradeAwardedBy")
+  gradeReversalsSigned GradeReversal[]  @relation("GradeReversalDean")
+  restartFocalSigned   RestartRequest[] @relation("RestartFocalSigner")
+  restartHodSigned     RestartRequest[] @relation("RestartHodSigner")
+  waiverFocalSigned    Waiver[]         @relation("WaiverFocalSigner")
+  waiverHodSigned      Waiver[]         @relation("WaiverHodSigner")
+  waiverDeanSigned     Waiver[]         @relation("WaiverDeanSigner")
+  escalationsRuled     Escalation[]     @relation("EscalationDean")
+  roleAssignments      UserRole[]
+
+  @@map("users")
+}
+
+// TODO(OQ-10): if BNU extends this deployment beyond SCIT, a tenant/school
+// column belongs on User and Student. Deliberately absent per the
+// restrictive-default reading in docs/modules/M01.md until OQ-10 is
+// answered — see docs/OPEN_QUESTIONS.md.
+
+enum RoleName {
+  STUDENT
+  FOCAL
+  HOD
+  DEAN
+  ADMIN
+}
+
+/// Fixed lookup, seeded once by prisma/seed.ts. Not user-editable — there
+/// is no route anywhere in the system that writes to this table.
+model Role {
+  id   String   @id @default(uuid(7)) @db.Uuid
+  name RoleName @unique
+
+  userRoles UserRole[]
+
+  @@map("roles")
+}
+
+/// A user may hold multiple roles (MASTER_PROMPT.md §2). Separation of
+/// duty (e.g. BR-12) is enforced per case at the service layer, never by
+/// restricting which role combinations a user may hold.
+model UserRole {
+  userId String @map("user_id") @db.Uuid
+  roleId String @map("role_id") @db.Uuid
+
+  user User @relation(fields: [userId], references: [id])
+  role Role @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+// ---------------------------------------------------------------------
+// Roster and calendar
+// ---------------------------------------------------------------------
+
+model Student {
+  id                  String @id @default(uuid(7)) @db.Uuid
+  userId              String @unique @map("user_id") @db.Uuid
+  registrationNumber  String @unique @map("registration_number")
+  admissionSemesterId String @map("admission_semester_id") @db.Uuid
+  programme           String
+
+  user              User     @relation(fields: [userId], references: [id])
+  admissionSemester Semester @relation(fields: [admissionSemesterId], references: [id])
+  cases             Case[]
+  waiver            Waiver?
+
+  @@map("students")
+}
+
+enum SemesterType {
+  FALL
+  SPRING
+  SUMMER
+}
+
+model Semester {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  type             SemesterType
+  year             Int
+  startsOn         DateTime     @map("starts_on") @db.Date
+  endsOn           DateTime     @map("ends_on") @db.Date
+  // TODO(OQ-01): exact per-semester document submission deadline dates are
+  // unanswered. Nullable until M03 populates it per semester; a case
+  // missing deliverables at an unset deadline is never auto-flagged by a
+  // null value — M03's deadline-sweep job must treat null as "no deadline
+  // configured yet", not "no deadline ever".
+  documentDeadline DateTime?    @map("document_deadline") @db.Date
+
+  students Student[]
+
+  @@unique([type, year])
+  @@map("semesters")
+}
+
+// ---------------------------------------------------------------------
+// Cases — the core lifecycle
+// ---------------------------------------------------------------------
+
+model Company {
+  id                 String  @id @default(uuid(7)) @db.Uuid
+  name               String
+  normalisedName     String  @map("normalised_name")
+  registrationNumber String? @map("registration_number")
+  contact            String?
+
+  cases           Case[]
+  restartRequests RestartRequest[]
+
+  @@index([normalisedName])
+  @@map("companies")
+}
+
+/// The full state list from MASTER_PROMPT.md §5.1. A native Postgres enum
+/// — inserting anything outside this list is a database-level error, not
+/// an application-level one.
+enum CaseState {
+  ELIGIBILITY_PENDING
+  ELIGIBLE
+  OFFER_SUBMITTED
+  OFFER_UNDER_REVIEW
+  OFFER_REJECTED
+  APPROVED
+  IN_PROGRESS
+  DOCS_PENDING
+  PENDING_VERIFICATION
+  VERIFIED
+  GRADE_RECOMMENDED
+  CLOSED_PASS
+  CLOSED_INCOMPLETE
+  WITHDRAWN
+  RESTART_REQUESTED
+  RESTART_AUTHORIZED
+  RESTART_DENIED
+  WAIVER_REQUESTED
+  WAIVER_COUNTERSIGNED
+  WAIVER_GRANTED
+  WAIVER_DENIED
+}
+
+/// One internship attempt. `state` is writable only through the M04
+/// transition executor — see the BEFORE UPDATE trigger appended to the
+/// init migration, which rejects any write to this column that didn't
+/// originate there (BR-25).
+///
+/// Offer-letter-specific fields (work description, company contact,
+/// programme-relevance judgement — BR-07, BR-09) are deliberately absent
+/// here. docs/modules/M01.md defers that column placement to M05, which
+/// decides whether they land on this table or a dedicated extension.
+model Case {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  studentId      String    @map("student_id") @db.Uuid
+  state          CaseState @default(ELIGIBILITY_PENDING)
+  previousCaseId String?   @map("previous_case_id") @db.Uuid
+  companyId      String?   @map("company_id") @db.Uuid
+  plannedStart   DateTime? @map("planned_start") @db.Date
+  plannedEnd     DateTime? @map("planned_end") @db.Date
+  actualStart    DateTime? @map("actual_start") @db.Date
+  actualEnd      DateTime? @map("actual_end") @db.Date
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+
+  student       Student  @relation(fields: [studentId], references: [id])
+  company       Company? @relation(fields: [companyId], references: [id])
+  previousCase  Case?    @relation("CaseRestartChain", fields: [previousCaseId], references: [id])
+  restartedInto Case[]   @relation("CaseRestartChain")
+
+  events                  CaseEvent[]
+  documents               Document[]
+  supervisorTokens        SupervisorToken[]
+  restartRequestsAsFailed RestartRequest[]  @relation("RestartFailedCase")
+  notifications           Notification[]
+  grade                   Grade?
+
+  // BR-06's real enforcement is the partial unique index appended in raw
+  // SQL (WHERE state NOT IN (<terminal states>)) — Prisma's schema
+  // language has no syntax for a partial index, so it isn't declared here.
+  @@index([studentId])
+  @@map("cases")
+}
+
+/// Append-only. The runtime database role has INSERT + SELECT only on this
+/// table (granted in the init migration's raw SQL) — this *is* the audit
+/// trail for state, kept separate from the general-purpose audit_events
+/// table so a case's own history reads cleanly on its own.
+model CaseEvent {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  caseId      String    @map("case_id") @db.Uuid
+  actorUserId String?   @map("actor_user_id") @db.Uuid
+  systemJob   String?   @map("system_job")
+  fromState   CaseState @map("from_state")
+  toState     CaseState @map("to_state")
+  reason      String?
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  case  Case  @relation(fields: [caseId], references: [id])
+  actor User? @relation("CaseEventActor", fields: [actorUserId], references: [id])
+
+  @@index([caseId])
+  @@map("case_events")
+}
+
+// ---------------------------------------------------------------------
+// Documents and verification
+// ---------------------------------------------------------------------
+
+enum DocumentType {
+  OFFER_LETTER
+  COMPLETION_CERTIFICATE
+  SUPPORTING_EVIDENCE
+}
+
+enum DocumentStatus {
+  ACTIVE
+  SUPERSEDED
+}
+
+/// Never deleted — status moves ACTIVE -> SUPERSEDED only, enforced by a
+/// CHECK appended in raw SQL that forbids going back to ACTIVE.
+/// `storageKey` is the generated UUID filename in the scit_uploads volume;
+/// `originalFilename` is metadata only and must never be used to build a
+/// filesystem path (see MASTER_PROMPT.md §9 "Files").
+model Document {
+  id               String         @id @default(uuid(7)) @db.Uuid
+  caseId           String         @map("case_id") @db.Uuid
+  type             DocumentType
+  storageKey       String         @unique @map("storage_key")
+  originalFilename String         @map("original_filename")
+  checksumSha256   String         @map("checksum_sha256")
+  status           DocumentStatus @default(ACTIVE)
+  uploadedBy       String         @map("uploaded_by") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  case          Case           @relation(fields: [caseId], references: [id])
+  uploader      User           @relation("DocumentUploadedBy", fields: [uploadedBy], references: [id])
+  verifications Verification[]
+
+  @@index([caseId])
+  @@map("documents")
+}
+
+enum VerificationMethod {
+  DOCUMENT_INSPECTED
+  EMPLOYER_CONTACTED_PHONE
+  EMPLOYER_CONTACTED_EMAIL
+  SUPERVISOR_LINK_CONFIRMED
+}
+
+/// BR-11: "verified" always means a method was recorded, never just that a
+/// button was clicked.
+model Verification {
+  id             String             @id @default(uuid(7)) @db.Uuid
+  documentId     String             @map("document_id") @db.Uuid
+  method         VerificationMethod
+  verifierUserId String             @map("verifier_user_id") @db.Uuid
+  note           String?
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+
+  document Document @relation(fields: [documentId], references: [id])
+  verifier User     @relation("VerificationVerifier", fields: [verifierUserId], references: [id])
+
+  @@index([documentId])
+  @@map("verifications")
+}
+
+// ---------------------------------------------------------------------
+// Grading
+// ---------------------------------------------------------------------
+
+enum GradeValue {
+  P
+  I
+}
+
+/// Immutable once written — the runtime role has INSERT + SELECT only
+/// (granted in raw SQL), no UPDATE/DELETE. Corrections are additive rows
+/// in GradeReversal; this row is never touched (BR-14).
+/// `recommendedBy <> awardedBy` is enforced twice: here as a CHECK
+/// constraint (defence in depth) and, primarily, at the service layer by
+/// comparing user IDs (BR-12).
+model Grade {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  caseId        String     @unique @map("case_id") @db.Uuid
+  value         GradeValue
+  recommendedBy String     @map("recommended_by") @db.Uuid
+  awardedBy     String     @map("awarded_by") @db.Uuid
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz
+
+  case        Case            @relation(fields: [caseId], references: [id])
+  recommender User            @relation("GradeRecommendedBy", fields: [recommendedBy], references: [id])
+  awarder     User            @relation("GradeAwardedBy", fields: [awardedBy], references: [id])
+  reversals   GradeReversal[]
+
+  @@map("grades")
+}
+
+/// The only legitimate route to correcting a grade — additive, Dean-signed,
+/// never touches the original Grade row.
+model GradeReversal {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  gradeId    String   @map("grade_id") @db.Uuid
+  reason     String
+  deanUserId String   @map("dean_user_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  grade Grade @relation(fields: [gradeId], references: [id])
+  dean  User  @relation("GradeReversalDean", fields: [deanUserId], references: [id])
+
+  @@map("grade_reversals")
+}
+
+// ---------------------------------------------------------------------
+// Supervisor evaluation
+// ---------------------------------------------------------------------
+
+/// Raw token exists only in the email sent to the supervisor — only its
+/// hash is stored, per MASTER_PROMPT.md §9 "Sessions and secrets". The
+/// partial unique index limiting to one *live* token per case (WHERE
+/// usedAt IS NULL) is appended in raw SQL for the same reason as BR-06's.
+model SupervisorToken {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  caseId    String    @map("case_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz
+  usedAt    DateTime? @map("used_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  case       Case        @relation(fields: [caseId], references: [id])
+  evaluation Evaluation?
+
+  @@index([caseId])
+  @@map("supervisor_tokens")
+}
+
+/// `supervisorTokenId` is unique — one evaluation per token, structurally
+/// preventing replay at the schema level as a second line of defence
+/// behind the app-level `usedAt` lock.
+model Evaluation {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  supervisorTokenId String   @unique @map("supervisor_token_id") @db.Uuid
+  content           Json
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  supervisorToken SupervisorToken @relation(fields: [supervisorTokenId], references: [id])
+
+  @@map("evaluations")
+}
+
+// ---------------------------------------------------------------------
+// Exception path A — restart
+// ---------------------------------------------------------------------
+
+enum RestartOutcome {
+  PENDING
+  AUTHORIZED
+  DENIED
+}
+
+/// `focalSignerId <> hodSignerId` is enforced twice: here as a CHECK
+/// (defence in depth) and at the service layer, which is the actual
+/// authority per BR-17 G3/G5. `restartCapAtRequest` snapshots the config
+/// value used at request time, so a later change to RESTART_CAP never
+/// silently reinterprets history (BR-19).
+model RestartRequest {
+  id                  String         @id @default(uuid(7)) @db.Uuid
+  failedCaseId        String         @map("failed_case_id") @db.Uuid
+  newCompanyId        String         @map("new_company_id") @db.Uuid
+  g1Result            Json           @map("g1_result")
+  g2Result            Json           @map("g2_result")
+  focalSignerId       String         @map("focal_signer_id") @db.Uuid
+  focalReason         String         @map("focal_reason")
+  focalSignedAt       DateTime       @map("focal_signed_at") @db.Timestamptz
+  hodSignerId         String?        @map("hod_signer_id") @db.Uuid
+  hodReason           String?        @map("hod_reason")
+  hodSignedAt         DateTime?      @map("hod_signed_at") @db.Timestamptz
+  outcome             RestartOutcome @default(PENDING)
+  restartCapAtRequest Int            @map("restart_cap_at_request")
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  failedCase  Case    @relation("RestartFailedCase", fields: [failedCaseId], references: [id])
+  newCompany  Company @relation(fields: [newCompanyId], references: [id])
+  focalSigner User    @relation("RestartFocalSigner", fields: [focalSignerId], references: [id])
+  hodSigner   User?   @relation("RestartHodSigner", fields: [hodSignerId], references: [id])
+
+  @@index([failedCaseId])
+  @@map("restart_requests")
+}
+
+// ---------------------------------------------------------------------
+// Exception path B — waiver
+// ---------------------------------------------------------------------
+
+enum WaiverOutcome {
+  PENDING
+  GRANTED
+  DENIED
+}
+
+/// `studentId` is unique — BR-23 "at most one waiver per student, ever" as
+/// a hard constraint, not just a check before insert. `circumstance`'s
+/// >=300-character floor is enforced primarily at the service layer with a
+/// CHECK appended in raw SQL as a second line of defence.
+model Waiver {
+  id            String        @id @default(uuid(7)) @db.Uuid
+  studentId     String        @unique @map("student_id") @db.Uuid
+  circumstance  String
+  focalSignerId String?       @map("focal_signer_id") @db.Uuid
+  focalReason   String?       @map("focal_reason")
+  focalSignedAt DateTime?     @map("focal_signed_at") @db.Timestamptz
+  hodSignerId   String?       @map("hod_signer_id") @db.Uuid
+  hodReason     String?       @map("hod_reason")
+  hodSignedAt   DateTime?     @map("hod_signed_at") @db.Timestamptz
+  deanSignerId  String?       @map("dean_signer_id") @db.Uuid
+  deanReason    String?       @map("dean_reason")
+  deanSignedAt  DateTime?     @map("dean_signed_at") @db.Timestamptz
+  outcome       WaiverOutcome @default(PENDING)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  student     Student @relation(fields: [studentId], references: [id])
+  focalSigner User?   @relation("WaiverFocalSigner", fields: [focalSignerId], references: [id])
+  hodSigner   User?   @relation("WaiverHodSigner", fields: [hodSignerId], references: [id])
+  deanSigner  User?   @relation("WaiverDeanSigner", fields: [deanSignerId], references: [id])
+
+  @@map("waivers")
+}
+
+// ---------------------------------------------------------------------
+// Escalation, audit, notifications
+// ---------------------------------------------------------------------
+
+/// Only one subject type exists at launch; the enum is intentionally
+/// extensible (a future migration adds a value) rather than a free-text
+/// column, so an escalation's subject can never silently drift to an
+/// unrecognised kind.
+enum EscalationSubjectType {
+  RESTART_DENIED
+}
+
+/// Final — no further transition anywhere in the system reads or updates
+/// an escalation row once written.
+model Escalation {
+  id          String                @id @default(uuid(7)) @db.Uuid
+  subjectType EscalationSubjectType @map("subject_type")
+  subjectId   String                @map("subject_id") @db.Uuid
+  deanUserId  String                @map("dean_user_id") @db.Uuid
+  reason      String
+  ruling      String
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz
+
+  dean User @relation("EscalationDean", fields: [deanUserId], references: [id])
+
+  @@map("escalations")
+}
+
+/// Append-only at the database privilege level (BR-26) — the runtime role
+/// has INSERT + SELECT only, granted in raw SQL, no UPDATE/DELETE.
+/// `metadata` never contains document contents, tokens, passwords, or
+/// full evaluation text (MASTER_PROMPT.md §9 "Privacy").
+model AuditEvent {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  systemJob   String?  @map("system_job")
+  eventType   String   @map("event_type")
+  entityType  String   @map("entity_type")
+  entityId    String   @map("entity_id") @db.Uuid
+  metadata    Json?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  actor User? @relation("AuditActor", fields: [actorUserId], references: [id])
+
+  @@index([entityType, entityId])
+  @@map("audit_events")
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENT
+  FAILED
+}
+
+model Notification {
+  id              String             @id @default(uuid(7)) @db.Uuid
+  templateId      String             @map("template_id")
+  templateVersion Int                @map("template_version")
+  recipient       String
+  sentAt          DateTime?          @map("sent_at") @db.Timestamptz
+  status          NotificationStatus @default(QUEUED)
+  caseId          String?            @map("case_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz
+
+  case Case? @relation(fields: [caseId], references: [id])
+
+  @@index([caseId])
+  @@map("notifications")
+}

@@ -6,16 +6,21 @@
 # used for both the `app` and `worker` compose services; only the command
 # differs (see docker-compose.yml).
 #
-# TODO(M01): once Prisma is introduced, confirm whether the query engine
-# needs libssl on top of node:22-slim's Debian base — add it to the runtime
-# stage's apt-get line below if `prisma migrate deploy` / the generated
-# client complains about a missing shared library.
+# M01 confirmed it: Prisma's query engine needs libssl on top of
+# node:22-slim's Debian base, or it falls back to guessing the OpenSSL
+# version ("Prisma failed to detect the libssl/openssl version to use")
+# instead of resolving it properly. Installed in every stage that touches
+# @prisma/client — deps (the `prisma generate` postinstall hook), builder
+# (`next build` loads the generated client), and runtime (the app actually
+# runs queries).
 
 ARG NODE_VERSION=22-slim
 
 # ---- deps: install with dev dependencies, cached separately from source ----
 FROM node:${NODE_VERSION} AS deps
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
@@ -23,10 +28,23 @@ RUN pnpm install --frozen-lockfile
 # ---- builder: compile the Next.js app ----
 FROM node:${NODE_VERSION} AS builder
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# The deps stage installs from only package.json + the lockfile (so its
+# layer cache is keyed on dependency changes, not schema changes) — which
+# means @prisma/client's postinstall hook ran with no prisma/schema.prisma
+# to see yet and generated nothing usable. Generate explicitly here, now
+# that the full source (including prisma/) has been copied in, and before
+# `next build` needs the generated client's types. `prisma generate` never
+# connects to a database, but it does check that the datasource's env var
+# is defined — a placeholder satisfies that; the real value is supplied at
+# container runtime via docker-compose's env_file and overrides this.
+ENV DATABASE_MIGRATION_ROLE="postgresql://build:build@localhost:5432/build"
+RUN pnpm exec prisma generate
 RUN pnpm build
 
 # ---- runtime: minimal image, non-root, no build tooling ----
@@ -36,6 +54,9 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends openssl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Non-root user that owns /data/uploads inside the container, per
 # MASTER_PROMPT.md §8.1. Nothing writes to /data/uploads until M06, but the

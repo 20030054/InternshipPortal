@@ -30,6 +30,52 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+  db-tests:
+    runs-on: ubuntu-latest
+    # A real Postgres, not a mock — this job proves the migration applies,
+    # the two-role privilege split holds, and every constraint/trigger from
+    # docs/modules/M01.md actually rejects what it's supposed to. Separate
+    # from lint-typecheck-test so that job stays fast and dependency-free.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scit_migrator
+          POSTGRES_PASSWORD: ci-migration-password
+          POSTGRES_DB: scit_internship
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U scit_migrator -d scit_internship"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_MIGRATION_ROLE: postgresql://scit_migrator:ci-migration-password@localhost:5432/scit_internship
+      DATABASE_URL: postgresql://scit_app:ci-app-password@localhost:5432/scit_internship
+      DATABASE_APP_ROLE_PASSWORD: ci-app-password
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Provision runtime role password
+        run: sh scripts/db/provision-runtime-role.sh
+
+      - name: Integration tests
+        run: pnpm test:integration
+
   docker-build:
     runs-on: ubuntu-latest
     steps:

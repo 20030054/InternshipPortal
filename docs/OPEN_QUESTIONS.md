@@ -15,10 +15,19 @@ in the code at the point it matters.
 | OQ-07 | Document retention period per university policy | M06 | Registrar | Open |
 | OQ-08 | Should students see supervisor evaluation comments? | M08 | HoD | Open |
 | OQ-09 | Does a waiver appear on the transcript differently from a pass? | M11 | Registrar | Open |
-| OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open |
+| OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
 
 ## Resolution log
 
 When an answer arrives, move the row's detail here (don't delete the row above — flip Status to `Resolved` and link to this entry) so the reasoning survives even if the table row is later archived.
 
-_(none yet)_
+### OQ-10 — restrictive default applied in M01 (not yet a real answer)
+
+No tenant/school column was added to `User` or `Student` in
+`prisma/schema.prisma` — the schema is built SCIT-only per the "implement
+the most restrictive interpretation" rule in `MASTER_PROMPT.md` §12.
+`TODO(OQ-10)` comments mark both models. Still genuinely open — needs a
+real answer from the HoD before assuming this is settled; if BNU ever
+extends the deployment, adding the column later is a normal migration
+(nullable, backfilled, then constrained), not a rewrite, because entity
+boundaries were kept clean of implicit cross-cutting lookups.
