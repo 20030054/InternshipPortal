@@ -434,3 +434,89 @@ CSV is universally exportable from any real SIS/spreadsheet tool, so it's
 the safe default per §0.2's restrictive-interpretation rule. Adding an
 XLSX branch later is additive (a second parser behind the same
 `importRoster()` entry point), not a rewrite.
+
+---
+
+### D-025 — 2026-08-30 — Corrective migration: RESTART_AUTHORIZED added to the terminal-states list
+
+**Decision:** A new migration
+(`20260830120000_restart_authorized_terminal`) drops and recreates
+`cases_one_nonterminal_per_student` (M01's partial unique index
+enforcing "at most one non-terminal case per student") to add
+`RESTART_AUTHORIZED` to the excluded (terminal) state list, alongside
+`CLOSED_PASS`, `CLOSED_INCOMPLETE`, `WITHDRAWN`, `WAIVER_GRANTED`,
+`WAIVER_DENIED`, `RESTART_DENIED`.
+
+**Why:** Found while writing M04's transition table (BR-06). Row 20's
+own postcondition — HoD authorizes a restart, a new case gets created in
+`ELIGIBLE` for the same student — is impossible under M01's original
+list, because a case sitting in `RESTART_AUTHORIZED` would still count
+as "non-terminal" and the new case's insert would violate the unique
+index. `RESTART_AUTHORIZED` is, functionally, a terminal state for *this
+particular case* — the student's continued journey happens on a new
+case row (`previous_case_id` links them), not by this one re-entering
+the state machine. Caught by hand-tracing the transition table against
+the M01 constraint before writing any code, not by a failing test.
+
+---
+
+### D-026 — 2026-08-30 — `TransitionContext` is one flat, optional-fields shape, not a discriminated union per transition
+
+**Decision:** `TransitionContext` (src/server/state-machine/types.ts)
+carries `caseId`, `actor`, `reason?`, and two optional narrow slices —
+`grade?: {recommendedBy, awardedBy}` and `restart?: {...}` — rather than
+21 per-transition context types.
+
+**Why:** Only 2 of the 21 rows need extra context beyond the case id,
+actor, and reason (BR-12's recommender/awarder check on rows 12-13;
+G1/G2/G4/G5's restart-specific fields on rows 19-20). A discriminated
+union keyed by `to` state would be more precise but would make the
+executor's own signature depend on the full transition table shape,
+which fights against `opts.table` being swappable (as the test suite's
+`SYNTHETIC_TABLE` relies on). Every guard function only reads the slice
+it needs and ignores the rest; guards for stubbed rules ignore `ctx`
+entirely. Revisit if a future module's context need doesn't fit either
+slice cleanly.
+
+---
+
+### D-027 — 2026-08-30 — Guard division of labor: BR-07/08/09/10/11 stubbed, restart guards (G1/G2/G4/G5) implemented for real
+
+**Decision:** `src/server/state-machine/guards.ts` implements
+`recommenderNotAwarder` (BR-12), `differentOrganization` (G1),
+`timeRemains` (G2), `belowRestartCap` (G4), and `distinctSigners` (G5)
+for real, evaluated against real `TransitionContext` fields. BR-07
+(offer completeness), BR-08 (duration bounds), BR-09 (relevance), BR-10
+(deliverables present), and BR-11 (deliverables verified) are
+`stubGuard(ruleId)` — a `GuardFn` that always returns `{ ok: true }` but
+carries `.ruleId` for later introspection/replacement.
+
+**Why:** BR-07 through BR-11 each depend on data model and business
+logic that belongs to other modules not yet built (M05 offers, M09
+documents/deliverables, M10 company matching) — implementing them now
+would mean guessing at those modules' shapes and almost certainly
+redoing the work. The restart guards, by contrast, only need data M04
+itself already has reason to define (company name on `cases`, semester
+counts, a restart counter, signer ids) — deferring them would leave
+BR-06's most safety-critical rule (the restart cap, and the
+double-signature requirement) unenforced with no compensating control.
+Each stub is a one-line, obviously-a-stub call, not a silent `return
+true` buried in the guard list, so a future module can `grep` for
+`stubGuard` and know exactly what's left.
+
+---
+
+### D-028 — 2026-08-30 — `stubGuard(ruleId)` returns a real `GuardFn`, not a bare closure
+
+**Decision:** `stubGuard` takes a `ruleId: string` parameter and returns
+a function with a `.ruleId` property attached, rather than a bare
+`() => ({ ok: true })` closure repeated five times.
+
+**Why:** A bare stub gives no way to tell, from the transition table
+alone, *which* business rule a given stub is standing in for — M04.md's
+table documents this in prose, but the code itself would go silent. The
+attached `.ruleId` makes that traceable at runtime (useful for a future
+audit or a test asserting "row 4 still carries its BR-08/BR-09 stubs")
+without adding a discriminated stub-registry type. Also incidentally
+avoids an ESLint unused-parameter warning that an underscore-prefixed
+`_ruleId` would otherwise have needed.

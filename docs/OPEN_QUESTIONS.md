@@ -17,6 +17,7 @@ in the code at the point it matters.
 | OQ-09 | Does a waiver appear on the transcript differently from a pass? | M11 | Registrar | Open |
 | OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
 | OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04 | Focal Person / whoever designed the process | Open — restrictive default applied |
+| OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | Open — restrictive default applied |
 
 ## Resolution log
 
@@ -47,3 +48,30 @@ reading once it exists — if it turns out every student *should* get an
 `ELIGIBILITY_PENDING` case at admission, that's an additive change (a
 sweep that creates dormant cases early), not a rewrite of what M03
 already built.
+
+**Update from M04:** confirmed and kept as-is. M04's transition table
+declares `ELIGIBILITY_PENDING → ELIGIBLE` as a real, tested transition
+(so the mechanism exists and works), but no code path in this build
+calls it — consistent with M03's reading that a case's first appearance
+is already past this pair for every path currently implemented (student
+action or BR-02's fallback). Still open for a real policy answer; the
+transition being defined and tested means answering it later costs
+nothing beyond wiring up a caller.
+
+### OQ-12 — restrictive default applied in M04
+
+M04's transition table has no entry producing any `WAIVER_REQUESTED`/
+`WAIVER_COUNTERSIGNED`/`WAIVER_GRANTED`/`WAIVER_DENIED` `cases.state`
+value — the waiver workflow (M11) is read as entirely independent of any
+Case row, driven through the `waivers` table's own `outcome` field
+(`PENDING`/`GRANTED`/`DENIED`) and its three signature timestamps, which
+M01 already built keyed to `student_id` directly, with no `case_id` at
+all. BR-21's "the only route that skips the eight steps entirely" reads
+as consistent with a waiver never requiring a case to exist. The four
+enum values stay in `CaseState` for schema completeness — removing them
+would be a breaking, disruptive change for no benefit — but nothing in
+this build ever sets `cases.state` to one of them. M11 should confirm
+this reading before building the waiver routes; if it turns out a
+waiver *should* touch an existing case's state (e.g. to mark it
+superseded), that's an additive transition-table entry, not a rewrite of
+the `waivers` table M01 already built.

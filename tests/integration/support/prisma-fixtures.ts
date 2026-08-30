@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { prisma } from "@/server/db/client";
-import type { RoleName, SemesterStatus, SemesterType } from "@prisma/client";
+import type {
+  CaseState,
+  RoleName,
+  SemesterStatus,
+  SemesterType,
+} from "@prisma/client";
 
 /**
  * Fixture builders using the app's own Prisma client (the scit_app
@@ -74,6 +79,42 @@ export async function createStudentFixture(
       admissionSemesterId,
       programme: "BS Computer Science",
     },
+  });
+}
+
+/**
+ * Creates a case directly at whatever `state` a test needs — bypassing
+ * the question of how it normally gets there (M04's fixtures don't need
+ * to answer OQ-11; that's a separate concern from "does this transition
+ * work given a case already sitting at its `from` state").
+ */
+export async function createCaseFixture(
+  overrides: {
+    studentId?: string;
+    state?: CaseState;
+    companyId?: string;
+    previousCaseId?: string;
+    autoEnrolled?: boolean;
+  } = {},
+) {
+  const studentId = overrides.studentId ?? (await createStudentFixture()).id;
+  return prisma.case.create({
+    data: {
+      studentId,
+      state: overrides.state ?? "ELIGIBILITY_PENDING",
+      companyId: overrides.companyId,
+      previousCaseId: overrides.previousCaseId,
+      autoEnrolled: overrides.autoEnrolled ?? false,
+    },
+  });
+}
+
+export async function createCompanyFixture(
+  overrides: { name?: string } = {},
+) {
+  const name = overrides.name ?? `Company ${randomUUID()}`;
+  return prisma.company.create({
+    data: { name, normalisedName: name.trim().toLowerCase() },
   });
 }
 
