@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   actualDatesRecorded,
   belowRestartCap,
+  deliverablesPresent,
+  deliverablesVerified,
   differentOrganization,
   distinctSigners,
   durationWithinBounds,
@@ -404,6 +406,62 @@ describe("actualDatesRecorded (BR-08, actual-dates half)", () => {
           actualStart: new Date("2026-06-01"),
           actualEnd: new Date("2026-06-15"), // 2 weeks
         },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe("deliverablesPresent (BR-10)", () => {
+  it("fails when deliverables context is missing", () => {
+    expect(deliverablesPresent(baseCtx()).ok).toBe(false);
+  });
+
+  it("rejects when any leg is missing", () => {
+    const result = deliverablesPresent(
+      baseCtx({
+        deliverables: {
+          hasActiveOfferLetter: true,
+          hasActiveCompletionCertificate: false,
+          hasSubmittedEvaluation: true,
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes when all three legs are present", () => {
+    const result = deliverablesPresent(
+      baseCtx({
+        deliverables: {
+          hasActiveOfferLetter: true,
+          hasActiveCompletionCertificate: true,
+          hasSubmittedEvaluation: true,
+        },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+});
+
+describe("deliverablesVerified (BR-11)", () => {
+  it("fails when deliverables context is missing", () => {
+    expect(deliverablesVerified(baseCtx()).ok).toBe(false);
+  });
+
+  it("rejects when the completion certificate isn't verified yet", () => {
+    const result = deliverablesVerified(
+      baseCtx({
+        deliverables: { offerLetterVerified: true, completionCertificateVerified: false },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes when both document-backed deliverables are verified", () => {
+    const result = deliverablesVerified(
+      baseCtx({
+        deliverables: { offerLetterVerified: true, completionCertificateVerified: true },
       }),
     );
     expect(result).toEqual({ ok: true });

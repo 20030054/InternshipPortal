@@ -7,7 +7,7 @@ in the code at the point it matters.
 | ID | Question | Blocks | Owner | Status |
 |---|---|---|---|---|
 | OQ-01 | Exact per-semester document submission deadline dates | M03 | Focal Person | Open |
-| OQ-02 | What counts as acceptable verification of a completion certificate — is employer contact required, or is document inspection sufficient? | M09 | Focal Person / HoD | Open |
+| OQ-02 | What counts as acceptable verification of a completion certificate — is employer contact required, or is document inspection sufficient? | M09 | Focal Person / HoD | Open — restrictive default applied (any single listed method suffices) |
 | OQ-03 | Confirm `RESTART_CAP` = 1, or a different number | M10 | HoD | Open |
 | OQ-04 | Who holds the Dean role in the system, and is there a delegate? | M10, M11 | Dean's office | Open |
 | OQ-05 | Will BNU provide an OIDC/SAML identity provider, or do we manage passwords? | M02 | BNU IT | Open |
@@ -102,3 +102,18 @@ gave the default. What's still genuinely open is the *policy* question —
 should the department ever flip it — which stays with the HoD, not
 something this build can answer. Flipping the flag later needs no code
 change, just a deployment config edit.
+
+### OQ-02 — restrictive default applied in M09
+
+`deliverablesVerified()`/the `deliverable.verify` route accept any
+single one of BR-11's four listed methods (`DOCUMENT_INSPECTED`,
+`EMPLOYER_CONTACTED_PHONE`, `EMPLOYER_CONTACTED_EMAIL`,
+`SUPERVISOR_LINK_CONFIRMED`) as sufficient for one document, with no
+minimum count and no required combination. BR-11 itself only asks for
+"a verification method," not a specific one or a set — imposing a
+stricter rule (e.g. requiring employer contact specifically for the
+completion certificate) would be answering OQ-02 with a guess nobody
+has confirmed. Still genuinely open; if the Focal Person/HoD later
+settle on a stricter policy (e.g. "employer contact is mandatory for
+the completion certificate specifically"), that's a small, additive
+change to `deliverablesVerified()`'s fact-gathering, not a rewrite.

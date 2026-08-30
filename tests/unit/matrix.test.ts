@@ -24,6 +24,9 @@ const EXPECTED: Record<Capability, RoleName[]> = {
   "deliverable.verify": ["FOCAL"],
   "grade.recommend": ["FOCAL"],
   "grade.award": ["HOD"],
+  // Not one of §3's eighteen rows -- a real gap BR-14 needs (M09), not a
+  // transcription from the table. See docs/modules/M09.md.
+  "grade.reverse": ["DEAN"],
   "restart.initiate": ["FOCAL"],
   "restart.countersign": ["HOD"],
   "escalation.rule_restart": ["DEAN"],

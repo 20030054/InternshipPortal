@@ -20,6 +20,11 @@ import type { RoleName } from "@prisma/client";
  * "Scope decisions this module makes." They are not extended with
  * case-shaped behavior; M04/M05 add `case.view_own`/`case.view_any`
  * alongside them, not instead of them.
+ *
+ * `grade.reverse` is a nineteenth, added by M09: BR-14 requires "a Dean
+ * signature" for a grade reversal, and no row in §3's table covers it —
+ * a real gap in the master prompt's own table, not an invented one. See
+ * docs/modules/M09.md "Scope decisions."
  */
 
 export type Capability =
@@ -34,6 +39,10 @@ export type Capability =
   | "deliverable.verify"
   | "grade.recommend"
   | "grade.award"
+  // Not one of MASTER_PROMPT.md §3's eighteen rows — a real gap found
+  // implementing BR-14 (M09): a grade reversal needs "a Dean signature,"
+  // but no row in the table covers it. See docs/modules/M09.md.
+  | "grade.reverse"
   | "restart.initiate"
   | "restart.countersign"
   | "escalation.rule_restart"
@@ -65,6 +74,7 @@ export const CAPABILITY_MATRIX: Readonly<Record<Capability, readonly RoleName[]>
   "deliverable.verify": ["FOCAL"],
   "grade.recommend": ["FOCAL"],
   "grade.award": ["HOD"],
+  "grade.reverse": ["DEAN"],
   "restart.initiate": ["FOCAL"],
   "restart.countersign": ["HOD"],
   "escalation.rule_restart": ["DEAN"],

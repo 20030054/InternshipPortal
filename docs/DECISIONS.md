@@ -1025,3 +1025,144 @@ this role ever do X," not "can this role do X only when a runtime
 setting says so" — matching how `document.upload_completion_certificate`
 and `case.progress_log_update` stayed simple, unconditional STUDENT
 capabilities while their *routes* carry the state/ownership gating.
+
+---
+
+### D-054 — 2026-08-30 — The supervisor evaluation's "verification" is its own token, not a `Verification` row
+
+**Decision:** BR-10's "all three deliverables exist" checks the
+`Evaluation` row's existence directly. BR-11's "all deliverables
+verified" only ever requires `Verification` rows for the two
+`Document`-backed deliverables (offer letter, completion certificate) —
+the evaluation never gets one.
+
+**Why:** `Verification.documentId` (M01) is a foreign key to `Document`
+— structurally, only `Document`-backed deliverables can ever have a
+`Verification` row at all. BR-11's fixed method list includes
+`SUPERVISOR_LINK_CONFIRMED`, which reads as *a way to verify a document*
+(e.g. corroborating the completion certificate against the supervisor's
+own evaluation) rather than a claim that the evaluation itself needs a
+second, separate verification step. The evaluation's authenticity is
+already stronger than a manual checkbox: an HMAC-signed, single-use
+token (M08) is harder to fake than clicking "verified."
+
+---
+
+### D-055 — 2026-08-30 — `recommendedGradeValue`/`recommendedBy` land on `Case`
+
+**Decision:** Two new nullable columns on `cases` hold the Focal
+Person's grade recommendation between row 11 (`GRADE_RECOMMENDED`) and
+rows 12/13 (award) — not a new `GradeRecommendation` table.
+
+**Why:** `Grade` (M01) requires `recommendedBy` *and* `awardedBy`
+simultaneously (both non-nullable) — it can only be created once,
+atomically, at award time, so there's nowhere on that table to park
+"what was recommended" while the case waits on the HoD. Mirrors M05's
+`workDescription`/`relevanceConfirmed` and M07's `actualStart`/
+`actualEnd` — this schema's established pattern for "state captured
+mid-flow, consumed by a later step" — rather than a new table nothing
+else would ever need to query as its own resource.
+
+---
+
+### D-056 — 2026-08-30 — The HoD's award can differ from the Focal Person's recommendation
+
+**Decision:** `awardGrade()` accepts its own `value`; it never silently
+copies `Case.recommendedGradeValue`. The transition target (`CLOSED_PASS`
+vs. `CLOSED_INCOMPLETE`) follows whatever the HoD actually chooses.
+
+**Why:** "The Focal Person recommends; the HoD awards" (BR-12) reads as
+two independent judgements — MASTER_PROMPT.md's own phrasing for the
+HoD's role is "approve or reject the Focal Person's grade recommendation
+(this is the act that awards the grade)," which implies a real decision
+point, not a rubber stamp forced to match. A disagreement is exactly
+what "approve or reject" as a description already anticipates.
+
+---
+
+### D-057 — 2026-08-30 — Grade creation happens *after* the transition succeeds, not before
+
+**Decision:** `awardGrade()` calls `executeTransition()` first; only on
+success does it create the `Grade` row.
+
+**Why:** A first draft did this the other way around and had a real
+bug: `grades.case_id` is unique, so if the `Grade` row were created
+*before* the transition and the transition then failed (wrong actor,
+missing reason, or the `recommenderNotAwarder` guard rejecting a
+same-account award attempt), the case would be left with an orphaned
+`Grade` row and no way to retry — the unique constraint would reject
+every subsequent attempt, even a legitimate one from a different
+account. Caught by tracing the failure path before writing a test for
+it, not by a failing test. `docker compose`-verified directly: a
+same-account award attempt is rejected and leaves zero `Grade` rows
+behind, confirmed against the real database.
+
+---
+
+### D-058 — 2026-08-30 — `grade.reverse`: a nineteenth capability, a real gap in §3's table
+
+**Decision:** Added `grade.reverse` (DEAN) to `src/server/authz/matrix.ts`
+— not one of `MASTER_PROMPT.md` §3's eighteen rows.
+
+**Why:** BR-14 requires "a Dean signature" for a grade reversal, but no
+row in the capability table covers it, and none of the Dean's other
+capabilities (`escalation.rule_restart`, `waiver.approve_final`) are a
+defensible stand-in for it — reusing either would be authorizing a
+distinct action under a capability that describes something else. Same
+situation M06 (downloads) and M08 (evaluation visibility) hit, but
+unlike those two, no existing capability fit here at all, so a new one
+was the only honest option.
+
+---
+
+### D-059 — 2026-08-30 — A grade reversal never touches `cases.state`
+
+**Decision:** `reverseGrade()` only ever creates a `GradeReversal` row.
+It never calls the transition executor, and no transition exists
+anywhere in M04's table that leaves `CLOSED_PASS`/`CLOSED_INCOMPLETE`.
+
+**Why:** BR-15 is explicit: "`CLOSED_PASS` can never be reopened by any
+role in this system." A `GradeReversal` is read as a permanent,
+additive correction to the *record* — the grade's real-world validity is
+now disputed, visible forever alongside the original — not a re-opening
+of the case for a new outcome. If a student genuinely needs another
+attempt, that's the restart gate's job (M10), a structurally separate
+mechanism already gated on `CLOSED_INCOMPLETE` specifically, not
+triggered by a reversal of any kind.
+
+---
+
+### D-060 — 2026-08-30 — `grade_reversals` gets the same append-only privilege treatment as `grades`
+
+**Decision:** This module's migration adds
+`REVOKE UPDATE, DELETE ON "grade_reversals" FROM scit_app`.
+
+**Why:** A real, minor gap found while implementing BR-14: M01 revoked
+`UPDATE`/`DELETE` on `grades` itself but never extended the same
+treatment to `grade_reversals` — the correction record BR-14's own
+integrity depends on. A reversal record that could itself be silently
+edited or deleted after the fact would undercut the audit trail it
+exists to provide, the same reasoning that made `grades` append-only in
+the first place.
+
+---
+
+### D-061 — 2026-08-30 — Row 9's auto-chain is triggered from M06's and M08's own routes
+
+**Decision:** `advanceToVerificationIfReady()` is called at the end of
+`POST /api/cases/:id/completion-certificate` (M06) and
+`POST /api/supervisor/evaluate/:token` (M08) — whichever of the two
+delivers the third deliverable last is the one that actually fires row
+9. It swallows `IllegalTransitionError` (not ready yet, or a concurrent
+path already advanced the case) and re-raises anything else.
+
+**Why:** Both routes already exist, already know the case they just
+touched, and are the only two places BR-10's remaining legs can ever
+arrive from (the offer letter, the third possible trigger, is already
+guaranteed present by the time a case reaches `DOCS_PENDING` at all —
+M05 requires it for `OFFER_SUBMITTED`). A dedicated sweep job would
+mean polling for a condition that only two code paths can ever cause to
+become true, and reaching back into two already-shipped, already-tested
+modules to wire a one-line call each is a smaller, more targeted change
+than a new scheduled job — the same reasoning M05 used for auto-chaining
+rows 3 and 7 in the first place.

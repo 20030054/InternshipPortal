@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { submitEvaluationSchema } from "@/schemas/supervisor";
 import { lookupSupervisorToken, submitEvaluation } from "@/server/supervisor/service";
 import { checkRateLimit } from "@/server/security/rate-limit";
+import { advanceToVerificationIfReady } from "@/server/grading/service";
 
 /**
  * Public, no-login routes — MASTER_PROMPT.md §2.5: the Industry
@@ -77,5 +78,6 @@ export async function POST(
   if (result.status === "already_submitted") {
     return NextResponse.json({ status: "already_submitted" }, { status: 200 });
   }
+  await advanceToVerificationIfReady(result.caseId);
   return NextResponse.json({ status: "submitted" }, { status: 201 });
 }

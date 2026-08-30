@@ -137,7 +137,7 @@ export async function lookupSupervisorToken(rawToken: string): Promise<TokenLook
 export type SubmitEvaluationResult =
   | { status: "invalid" }
   | { status: "already_submitted" }
-  | { status: "submitted"; evaluation: Evaluation };
+  | { status: "submitted"; evaluation: Evaluation; caseId: string };
 
 /** Locks the token (`usedAt`) and creates the `Evaluation` row in one
  * transaction — `evaluations.supervisor_token_id` is itself unique
@@ -174,7 +174,7 @@ export async function submitEvaluation(input: {
     });
   });
 
-  return { status: "submitted", evaluation };
+  return { status: "submitted", evaluation, caseId: record.caseId };
 }
 
 /** For `GET /api/cases/:id/evaluation` — the caller (route) is

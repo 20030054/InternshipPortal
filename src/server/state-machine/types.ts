@@ -79,6 +79,18 @@ export type TransitionContext = {
     actualStart?: Date;
     actualEnd?: Date;
   };
+
+  /** Populated only for rows 9 (`DOCS_PENDING -> PENDING_VERIFICATION`,
+   * BR-10) and 10 (`PENDING_VERIFICATION -> VERIFIED`, BR-11) — M09.
+   * Each guard reads only the subset of fields its own rule needs, same
+   * pattern as `offer`. */
+  deliverables?: {
+    hasActiveOfferLetter?: boolean;
+    hasActiveCompletionCertificate?: boolean;
+    hasSubmittedEvaluation?: boolean;
+    offerLetterVerified?: boolean;
+    completionCertificateVerified?: boolean;
+  };
 };
 
 /** A human actor (session-backed) or the system (a scheduled job /

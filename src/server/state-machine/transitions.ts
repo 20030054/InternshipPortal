@@ -2,6 +2,8 @@ import type { Transition } from "./types";
 import {
   actualDatesRecorded,
   belowRestartCap,
+  deliverablesPresent,
+  deliverablesVerified,
   differentOrganization,
   distinctSigners,
   durationWithinBounds,
@@ -9,7 +11,6 @@ import {
   offerComplete,
   recommenderNotAwarder,
   relevanceConfirmed,
-  stubGuard,
   timeRemains,
 } from "./guards";
 
@@ -21,6 +22,9 @@ import {
  * `WAIVER_*` states are deliberately absent as transition targets — see
  * OPEN_QUESTIONS.md OQ-12. `ELIGIBILITY_PENDING -> ELIGIBLE` now has a
  * real caller (M05's `openCase()`) — see OQ-11.
+ *
+ * As of M09, every row's guards are real — no `stubGuard()` remains
+ * anywhere in this table.
  */
 export const TRANSITIONS: readonly Transition[] = [
   // ---- Normal path ----
@@ -92,7 +96,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "DOCS_PENDING",
     to: "PENDING_VERIFICATION",
     actorRole: "SYSTEM",
-    guards: [stubGuard("BR-10")], // TODO(M08/M09): all three deliverables present — M06 wires the offer-letter/completion-certificate legs' Document rows but leaves this stub, since the third (supervisor evaluation, M08) has no data model yet; see docs/modules/M06.md
+    guards: [deliverablesPresent], // BR-10, real as of M09
     requiresReason: false,
     emitsEvent: "ALL_DOCS_RECEIVED",
   },
@@ -100,7 +104,7 @@ export const TRANSITIONS: readonly Transition[] = [
     from: "PENDING_VERIFICATION",
     to: "VERIFIED",
     actorRole: "FOCAL",
-    guards: [stubGuard("BR-11")], // TODO(M09): all three deliverables verified
+    guards: [deliverablesVerified], // BR-11, real as of M09
     requiresReason: false,
     emitsEvent: "ALL_DELIVERABLES_VERIFIED",
   },

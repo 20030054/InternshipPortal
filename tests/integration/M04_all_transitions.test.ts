@@ -27,14 +27,15 @@ import { createUserActor } from "./support/actor";
  * result and reuse its .userId in both places, rather than creating two
  * separate users and hoping their fake ids happened to differ.
  *
- * Rows 1, 2, 4 and 6 now carry M05's real guards (BR-01/07/08/09), and
- * row 8 carries M07's (BR-08's actual-dates half) — rather than M04's
- * original always-pass stubs. Their success-path tests below pass the
- * minimal valid `context` those guards need. Guard *failure* paths for
- * those rows are covered by the dedicated BR01/BR07/BR08/BR09 test
- * files (through the real routes), not duplicated here — this file's
- * job is proving each row's (from, to, actor, reason) shape against the
- * real table, not re-proving what guards.test.ts and the BR0X files
+ * Rows 1, 2, 4 and 6 now carry M05's real guards (BR-01/07/08/09), row 8
+ * carries M07's (BR-08's actual-dates half), and rows 9-10 carry M09's
+ * (BR-10/BR-11) — rather than M04's original always-pass stubs. Their
+ * success-path tests below pass the minimal valid `context` those
+ * guards need. Guard *failure* paths for those rows are covered by the
+ * dedicated BR01/BR07/BR08/BR09/BR10/BR11 test files (through the real
+ * routes), not duplicated here — this file's job is proving each row's
+ * (from, to, actor, reason) shape against the real table, not
+ * re-proving what guards.test.ts and the BR0X files
  * already cover.
  */
 const VALID_OFFER = {
@@ -157,14 +158,26 @@ describe("M04: every transition in the real table", () => {
 
   it("9. DOCS_PENDING -> PENDING_VERIFICATION (SYSTEM)", async () => {
     const kase = await createCaseFixture({ state: "DOCS_PENDING" });
-    const result = await executeSystemTransition(kase.id, "PENDING_VERIFICATION", "docs-complete-job");
+    const result = await executeSystemTransition(kase.id, "PENDING_VERIFICATION", "docs-complete-job", {
+      context: {
+        deliverables: {
+          hasActiveOfferLetter: true,
+          hasActiveCompletionCertificate: true,
+          hasSubmittedEvaluation: true,
+        },
+      },
+    });
     expect(result.state).toBe("PENDING_VERIFICATION");
   });
 
   it("10. PENDING_VERIFICATION -> VERIFIED (FOCAL)", async () => {
     const kase = await createCaseFixture({ state: "PENDING_VERIFICATION" });
     const actor = await createUserActor("FOCAL");
-    const result = await executeTransition(kase.id, "VERIFIED", actor);
+    const result = await executeTransition(kase.id, "VERIFIED", actor, {
+      context: {
+        deliverables: { offerLetterVerified: true, completionCertificateVerified: true },
+      },
+    });
     expect(result.state).toBe("VERIFIED");
   });
 

@@ -4,9 +4,10 @@ import { weeksBetween } from "@/server/progress/duration";
 /**
  * Real guards — implemented now because the data they need already
  * exists (M01's Grade/Company/RestartRequest tables, M03's eligibility
- * machinery, M05's offer fields). See docs/modules/M04.md and
- * docs/modules/M05.md "Scope decisions" for which guards are real here
- * versus stubbed for a later module to replace.
+ * machinery, M05's offer fields, M07's completion dates, M09's
+ * verification/evaluation records). See each module's own "Scope
+ * decisions" (M04, M05, M07, M09) for which guards are real here versus
+ * stubbed for a later module to replace.
  */
 
 /** BR-12: the same account may never both recommend and award a grade.
@@ -202,12 +203,43 @@ export const relevanceConfirmed: GuardFn = (ctx): GuardResult => {
   return { ok: true };
 };
 
+/** BR-10: "all three deliverables exist." The evaluation leg is checked
+ * by its own presence (a submitted `Evaluation`, via a used
+ * `SupervisorToken`) — no `Verification` row is possible for it
+ * structurally, see docs/modules/M09.md "Scope decisions." */
+export const deliverablesPresent: GuardFn = (ctx): GuardResult => {
+  const d = ctx.deliverables;
+  const missing: string[] = [];
+  if (!d?.hasActiveOfferLetter) missing.push("offer letter");
+  if (!d?.hasActiveCompletionCertificate) missing.push("completion certificate");
+  if (!d?.hasSubmittedEvaluation) missing.push("supervisor evaluation");
+  if (missing.length > 0) {
+    return { ok: false, reason: `BR-10: missing ${missing.join(", ")}` };
+  }
+  return { ok: true };
+};
+
+/** BR-11: "all deliverables verified." Only the two Document-backed
+ * deliverables need a Verification row — see docs/modules/M09.md. */
+export const deliverablesVerified: GuardFn = (ctx): GuardResult => {
+  const d = ctx.deliverables;
+  const unverified: string[] = [];
+  if (!d?.offerLetterVerified) unverified.push("offer letter");
+  if (!d?.completionCertificateVerified) unverified.push("completion certificate");
+  if (unverified.length > 0) {
+    return { ok: false, reason: `BR-11: not yet verified: ${unverified.join(", ")}` };
+  }
+  return { ok: true };
+};
+
 /**
- * Always passes. Stands in for BR-10/11 guards (M05 replaced BR-07/08/09
- * with the real guards above), whose underlying fields don't exist yet
- * (M06's document vault, M09's verification records). M09 replaces this
- * stub with a real guard function per transition; the table and executor
- * never change shape when it does.
+ * Always passes. Every real business rule from `MASTER_PROMPT.md` §4
+ * that has a data model to check against now has a real guard above —
+ * `stubGuard()` is unused in `transitions.ts` as of M09, kept as
+ * available infrastructure should a future module need the same
+ * "stand-in that always passes, tagged with which rule it's standing in
+ * for" mechanism M04 through M09 relied on while their own data models
+ * didn't exist yet.
  *
  * `ruleId` is attached to the returned function so a future audit of
  * `transitions.ts` (or a test asserting "no stub guards remain") can

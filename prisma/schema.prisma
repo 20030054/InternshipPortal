@@ -286,32 +286,39 @@ enum CaseState {
 /// columns here. The offer letter file itself is a `Document` row
 /// (type OFFER_LETTER), not a column.
 model Case {
-  id                 String    @id @default(uuid(7)) @db.Uuid
-  studentId          String    @map("student_id") @db.Uuid
-  state              CaseState @default(ELIGIBILITY_PENDING)
-  previousCaseId     String?   @map("previous_case_id") @db.Uuid
-  companyId          String?   @map("company_id") @db.Uuid
-  plannedStart       DateTime? @map("planned_start") @db.Date
-  plannedEnd         DateTime? @map("planned_end") @db.Date
-  actualStart        DateTime? @map("actual_start") @db.Date
-  actualEnd          DateTime? @map("actual_end") @db.Date
+  id                    String      @id @default(uuid(7)) @db.Uuid
+  studentId             String      @map("student_id") @db.Uuid
+  state                 CaseState   @default(ELIGIBILITY_PENDING)
+  previousCaseId        String?     @map("previous_case_id") @db.Uuid
+  companyId             String?     @map("company_id") @db.Uuid
+  plannedStart          DateTime?   @map("planned_start") @db.Date
+  plannedEnd            DateTime?   @map("planned_end") @db.Date
+  actualStart           DateTime?   @map("actual_start") @db.Date
+  actualEnd             DateTime?   @map("actual_end") @db.Date
   // BR-07: student-submitted, overwritten on resubmission — no history of
   // prior attempts' text is kept, only the state-transition history
   // (case_events) already gives that. Length floor is also a DB CHECK
   // appended in raw SQL (this migration) as defence in depth.
-  workDescription    String?   @map("work_description")
+  workDescription       String?     @map("work_description")
   // BR-09: the Focal Person's mandatory relevance judgement, set only at
   // approval. The "reason stored" half of BR-09 is read as the same
   // mandatory reason the APPROVED transition already requires — see
   // docs/modules/M05.md.
-  relevanceConfirmed Boolean?  @map("relevance_confirmed")
+  relevanceConfirmed    Boolean?    @map("relevance_confirmed")
+  // M09: where the Focal Person's grade recommendation (BR-12) lives
+  // between rows 11 and 12/13 — `Grade` (below) requires recommendedBy
+  // *and* awardedBy simultaneously, so there's nowhere on that table to
+  // park "what was recommended" while the case sits in
+  // GRADE_RECOMMENDED. See docs/modules/M09.md "Scope decisions."
+  recommendedGradeValue GradeValue? @map("recommended_grade_value")
+  recommendedBy         String?     @map("recommended_by") @db.Uuid
   // M03/BR-02: true only for a case created by the semester-6
   // auto-enrollment sweep (src/server/roster/auto-enrollment-sweep.ts),
   // never set any other way — lets M13's dashboard query "all
   // auto-enrolled cases" directly instead of parsing audit metadata.
-  autoEnrolled       Boolean   @default(false) @map("auto_enrolled")
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  autoEnrolled          Boolean     @default(false) @map("auto_enrolled")
+  createdAt             DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime    @updatedAt @map("updated_at") @db.Timestamptz
 
   student       Student  @relation(fields: [studentId], references: [id])
   company       Company? @relation(fields: [companyId], references: [id])

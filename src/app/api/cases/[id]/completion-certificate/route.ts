@@ -11,14 +11,18 @@ import {
   UnsupportedFileTypeError,
 } from "@/server/documents/store";
 import { InfectedFileError, ScanUnavailableError } from "@/server/documents/clamav";
+import { advanceToVerificationIfReady } from "@/server/grading/service";
 import type { CaseState } from "@prisma/client";
 
 /**
  * `document.upload_completion_certificate` (MASTER_PROMPT.md §3), a
- * capability M02 declared with no route since. Only creates a
- * `Document` row — see docs/modules/M06.md "Scope decisions" for why
- * this deliberately doesn't also advance `cases.state` (that's M07's
- * job, once it exists).
+ * capability M02 declared with no route since. Creates a `Document` row
+ * and — new in M09 — checks whether this was the last of the three BR-10
+ * deliverables to arrive, firing row 9 automatically if so. Never
+ * advances `cases.state` on its own beyond that one real, guarded
+ * transition (see docs/modules/M06.md's original "Scope decisions" for
+ * why this route never invented its own state-advancing logic before
+ * M09 existed to own it).
  */
 const UPLOADABLE_STATES: readonly CaseState[] = ["IN_PROGRESS", "DOCS_PENDING"];
 
@@ -68,6 +72,8 @@ export async function POST(
       file,
       uploadedBy: identity.userId,
     });
+
+    await advanceToVerificationIfReady(id);
 
     return NextResponse.json(document, { status: 201 });
   } catch (err) {
