@@ -1,0 +1,27 @@
+# Reverse proxy / TLS termination — the only compose service with published
+# ports, per MASTER_PROMPT.md §8.1.
+#
+# {$APP_URL} is expected to be a real hostname (e.g. internship.scit.bnu.edu.pk)
+# for automatic HTTPS via Caddy's built-in ACME support on a machine reachable
+# from the internet. For a campus-network-only deployment with no public DNS,
+# replace {$APP_URL} with the internal hostname/IP and add `tls internal` to
+# the site block below to use Caddy's local CA instead — do not remove TLS
+# entirely; the master prompt requires HTTPS either way.
+{$APP_URL:localhost} {
+	reverse_proxy app:3000
+
+	encode zstd gzip
+
+	header {
+		# Baseline hardening; M14 owns the full CSP, HSTS and remaining
+		# security headers per MASTER_PROMPT.md §9 — this is intentionally
+		# minimal for M00 and not the final policy.
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

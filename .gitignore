@@ -5,6 +5,10 @@ node_modules/
 # Next.js
 .next/
 out/
+next-env.d.ts
+
+# TypeScript incremental build cache
+*.tsbuildinfo
 
 # Env / secrets
 .env

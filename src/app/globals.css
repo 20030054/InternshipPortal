@@ -1,0 +1,25 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Palette from MASTER_PROMPT.md §10 — the department's process-graphic
+ * colors, carried through so printed and digital artefacts match. This is
+ * the single source of truth; tailwind.config.ts only points at these
+ * variables, it never repeats the hex values.
+ */
+:root {
+  --color-deep: #0e3b43;
+  --color-mid: #2e7d8f;
+  --color-gold: #d99a2b;
+  --color-ink: #16262b;
+  --color-muted: #5c6f75;
+  --color-tint: #eff4f4;
+  --color-danger: #a32d2d;
+  --color-ok: #1d9e75;
+}
+
+body {
+  color: var(--color-ink);
+  background-color: white;
+}

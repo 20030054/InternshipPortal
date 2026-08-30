@@ -1,0 +1,155 @@
+# Topology per MASTER_PROMPT.md §8.1 / docs/ARCHITECTURE.md §3. Seven
+# services, five named volumes, internal Docker network. Only `caddy`
+# publishes ports.
+#
+# M00 brings every service up healthy with no application data yet.
+# Postgres has no schema (M01), the app has no auth (M02), the worker
+# processes no jobs (M12) — but the full shape is present now so no later
+# module has to touch this file just to make its service exist.
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_URL: ${APP_URL:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - scit_caddy:/data
+    depends_on:
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["node", "server.js"]
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    volumes:
+      - scit_uploads:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/api/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["node", "worker/index.mjs"]
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # The app image's own HEALTHCHECK probes an HTTP port this process
+      # never opens, so it's overridden here with a heartbeat-file check
+      # matching worker/index.mjs's periodic writeFileSync.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "const fs=require('fs'); const s=fs.statSync('/tmp/healthy'); process.exit(Date.now()-s.mtimeMs<60000?0:1)",
+        ]
+      interval: 15s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-scit_migrator}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-scit_internship}
+    volumes:
+      - scit_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scit_migrator} -d ${POSTGRES_DB:-scit_internship}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - scit_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  clamav:
+    image: clamav/clamav:stable
+    restart: unless-stopped
+    healthcheck:
+      # Bundled with the official image; virus DB load on first boot can
+      # take a couple of minutes, hence the long start_period.
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 5
+
+  backup:
+    build:
+      context: ./docker/backup
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-3600}
+    volumes:
+      - scit_backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/healthy -mmin -70 | grep -q healthy"]
+      interval: 60s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+
+volumes:
+  scit_pgdata:
+  scit_uploads:
+  scit_redis:
+  scit_backups:
+  scit_caddy:

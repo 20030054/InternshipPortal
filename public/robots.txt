@@ -1,0 +1,3 @@
+# This is an authenticated internal university system, not public content.
+User-agent: *
+Disallow: /
