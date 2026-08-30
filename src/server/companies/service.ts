@@ -20,6 +20,11 @@ import { normalizeCompanyName } from "./normalize";
 export async function findOrCreateCompany(input: {
   name: string;
   contact: string;
+  /** Optional — no route before M10 ever collects this (BR-07's offer
+   * submission doesn't ask for one). Only fills it in if it was
+   * previously unset, same "never clobber a prior submission" rule as
+   * `contact`. */
+  registrationNumber?: string;
 }): Promise<Company> {
   const normalisedName = normalizeCompanyName(input.name);
 
@@ -27,16 +32,23 @@ export async function findOrCreateCompany(input: {
     where: { normalisedName },
   });
   if (existing) {
-    if (!existing.contact && input.contact) {
-      return prisma.company.update({
-        where: { id: existing.id },
-        data: { contact: input.contact },
-      });
+    const patch: { contact?: string; registrationNumber?: string } = {};
+    if (!existing.contact && input.contact) patch.contact = input.contact;
+    if (!existing.registrationNumber && input.registrationNumber) {
+      patch.registrationNumber = input.registrationNumber;
+    }
+    if (Object.keys(patch).length > 0) {
+      return prisma.company.update({ where: { id: existing.id }, data: patch });
     }
     return existing;
   }
 
   return prisma.company.create({
-    data: { name: input.name, normalisedName, contact: input.contact },
+    data: {
+      name: input.name,
+      normalisedName,
+      contact: input.contact,
+      registrationNumber: input.registrationNumber,
+    },
   });
 }

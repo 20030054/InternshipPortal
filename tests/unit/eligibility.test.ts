@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   computeEligibility,
+  semestersRemainingBeforeGraduation,
   AUTO_ENROLL_BOUNDARY_SEMESTERS,
   ELIGIBILITY_THRESHOLD_SEMESTERS,
+  GRADUATION_BOUNDARY_SEMESTERS,
   type SemesterFact,
 } from "@/server/roster/eligibility";
 
@@ -102,5 +104,23 @@ describe("computeEligibility (BR-01/BR-02/BR-04)", () => {
     // Only "admission" (seq 5) and "after" (seq 6) count -- "before" (seq
     // 1) predates the student and must never count toward their clock.
     expect(result.semestersCompleted).toBe(2);
+  });
+});
+
+describe("semestersRemainingBeforeGraduation (G2/M10)", () => {
+  it(`is ${GRADUATION_BOUNDARY_SEMESTERS} when nothing is completed yet`, () => {
+    expect(semestersRemainingBeforeGraduation(0)).toBe(GRADUATION_BOUNDARY_SEMESTERS);
+  });
+
+  it("is exactly 1 with one semester left before the boundary", () => {
+    expect(semestersRemainingBeforeGraduation(GRADUATION_BOUNDARY_SEMESTERS - 1)).toBe(1);
+  });
+
+  it("is 0 exactly at the boundary (G2 fails: not >= 1)", () => {
+    expect(semestersRemainingBeforeGraduation(GRADUATION_BOUNDARY_SEMESTERS)).toBe(0);
+  });
+
+  it("goes negative past the boundary rather than clamping", () => {
+    expect(semestersRemainingBeforeGraduation(GRADUATION_BOUNDARY_SEMESTERS + 3)).toBe(-3);
   });
 });

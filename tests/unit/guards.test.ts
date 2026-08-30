@@ -96,6 +96,57 @@ describe("differentOrganization (G1)", () => {
     );
     expect(result).toEqual({ ok: true });
   });
+
+  it("rejects a different name but a matching registration number (M10)", () => {
+    const result = differentOrganization(
+      baseCtx({
+        restart: {
+          failedCaseCompanyNormalizedName: "acme corp",
+          newCompanyNormalizedName: "acme holdings llc",
+          failedCaseCompanyRegistrationNumber: "NTN-123",
+          newCompanyRegistrationNumber: "NTN-123",
+          semestersRemaining: 2,
+          existingRestartCount: 0,
+          restartCap: 1,
+        },
+      }),
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("passes on differing registration numbers even with similar names (M10)", () => {
+    const result = differentOrganization(
+      baseCtx({
+        restart: {
+          failedCaseCompanyNormalizedName: "acme corp",
+          newCompanyNormalizedName: "acme corp 2",
+          failedCaseCompanyRegistrationNumber: "NTN-123",
+          newCompanyRegistrationNumber: "NTN-456",
+          semestersRemaining: 2,
+          existingRestartCount: 0,
+          restartCap: 1,
+        },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("passes when registration numbers aren't available on either side (M10, 'where available')", () => {
+    const result = differentOrganization(
+      baseCtx({
+        restart: {
+          failedCaseCompanyNormalizedName: "acme corp",
+          newCompanyNormalizedName: "globex inc",
+          failedCaseCompanyRegistrationNumber: null,
+          newCompanyRegistrationNumber: null,
+          semestersRemaining: 2,
+          existingRestartCount: 0,
+          restartCap: 1,
+        },
+      }),
+    );
+    expect(result).toEqual({ ok: true });
+  });
 });
 
 describe("timeRemains (G2)", () => {

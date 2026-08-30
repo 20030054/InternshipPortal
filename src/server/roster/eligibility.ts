@@ -9,6 +9,20 @@
 export const ELIGIBILITY_THRESHOLD_SEMESTERS = 4;
 export const AUTO_ENROLL_BOUNDARY_SEMESTERS = 6;
 
+/** G2 (BR-17)/M10: the total program length in semesters, used only to
+ * compute how many remain before graduation. `MASTER_PROMPT.md` never
+ * states this directly — the only textual anchor anywhere in the
+ * document is §15's seed-data line, "students across semesters 3 to 8,"
+ * which reads as the intended full range of a normal, still-enrolled
+ * student for a standard 4-year/8-semester BS program. This is an
+ * inference from a demo-data hint, not a stated fact — see OQ-13 in
+ * docs/OPEN_QUESTIONS.md. A smaller number would make G2 harder to pass
+ * (more restrictive) but would contradict the seed data's own claim that
+ * semester 8 is still a normal enrolled semester, so 8 is both the
+ * textually-grounded and the appropriately restrictive choice available
+ * without an HoD-confirmed answer. */
+export const GRADUATION_BOUNDARY_SEMESTERS = 8;
+
 export type SemesterFact = {
   id: string;
   sequenceNumber: number;
@@ -56,4 +70,16 @@ export function computeEligibility(
     isPastAutoEnrollBoundary:
       semestersCompleted >= AUTO_ENROLL_BOUNDARY_SEMESTERS,
   };
+}
+
+/** G2 (BR-17)/M10: full semesters remaining before
+ * `GRADUATION_BOUNDARY_SEMESTERS`, built on `computeEligibility()`'s own
+ * `semestersCompleted` rather than re-deriving it — same admission
+ * semester, same roster data, one extra subtraction. Can be zero or
+ * negative (a student already past the boundary); `timeRemains` (M04)
+ * fails whenever this is below 1. */
+export function semestersRemainingBeforeGraduation(
+  semestersCompleted: number,
+): number {
+  return GRADUATION_BOUNDARY_SEMESTERS - semestersCompleted;
 }

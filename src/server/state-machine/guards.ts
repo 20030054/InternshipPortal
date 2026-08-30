@@ -29,15 +29,22 @@ export const recommenderNotAwarder: GuardFn = (ctx): GuardResult => {
 };
 
 /** §5.3 G1: the new organisation must not match the failed case's
- * organisation. Exact normalised-name comparison only — the fuzzy
- * matching above COMPANY_MATCH_THRESHOLD with human confirmation on a
- * flagged match is M10's job (docs/modules/M04.md's division of labour). */
+ * organisation. Exact match only — normalised name, or (M10) an exact
+ * registration/NTN match when both sides have one on file. The *fuzzy*
+ * half (similarity above COMPANY_MATCH_THRESHOLD, flagged for an
+ * explicit HoD override) isn't expressible as a guard at all — see
+ * docs/modules/M10.md "Scope decisions" — and lives in the restart
+ * service instead. */
 export const differentOrganization: GuardFn = (ctx): GuardResult => {
   if (!ctx.restart) {
     return { ok: false, reason: "restart context missing" };
   }
-  const { failedCaseCompanyNormalizedName, newCompanyNormalizedName } =
-    ctx.restart;
+  const {
+    failedCaseCompanyNormalizedName,
+    newCompanyNormalizedName,
+    failedCaseCompanyRegistrationNumber,
+    newCompanyRegistrationNumber,
+  } = ctx.restart;
   if (
     failedCaseCompanyNormalizedName !== null &&
     failedCaseCompanyNormalizedName === newCompanyNormalizedName
@@ -45,6 +52,17 @@ export const differentOrganization: GuardFn = (ctx): GuardResult => {
     return {
       ok: false,
       reason: "G1: the new organisation matches the failed case's organisation",
+    };
+  }
+  if (
+    failedCaseCompanyRegistrationNumber != null &&
+    newCompanyRegistrationNumber != null &&
+    failedCaseCompanyRegistrationNumber === newCompanyRegistrationNumber
+  ) {
+    return {
+      ok: false,
+      reason:
+        "G1: the new organisation's registration number matches the failed case's organisation",
     };
   }
   return { ok: true };

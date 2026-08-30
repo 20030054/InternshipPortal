@@ -1166,3 +1166,138 @@ become true, and reaching back into two already-shipped, already-tested
 modules to wire a one-line call each is a smaller, more targeted change
 than a new scheduled job — the same reasoning M05 used for auto-chaining
 rows 3 and 7 in the first place.
+
+---
+
+### D-062 — 2026-08-30 — G1's registration-number/fuzzy-match half lands in M10, extending an M04 guard plus a new service-level layer
+
+**Decision:** `differentOrganization` (M04) gains a second hard-block
+check — an exact `Company.registrationNumber` match, when both sides
+have one on file — alongside its existing exact-name check. The *fuzzy*
+half (similarity above `COMPANY_MATCH_THRESHOLD`, flagged for an
+explicit HoD override) isn't a guard at all: it's computed in
+`src/server/companies/match.ts` (new, dependency-free Levenshtein-ratio
+similarity) and enforced in the countersign route, which 400s a flagged
+request unless the HoD explicitly passes `acknowledgeFlaggedMatch: true`.
+
+**Why:** `differentOrganization`'s own doc comment already earmarked
+this exact split for M10 ("fuzzy matching... with human confirmation on
+a flagged match is M10's job"). A guard is a pure, single-shot
+pass/fail; "flagged, pending an explicit override supplied on a *later*
+request" needs state and a second actor's input, which a guard function
+can't express. See docs/modules/M10.md "Scope decisions."
+
+---
+
+### D-063 — 2026-08-30 — BR-20's "remains CLOSED_INCOMPLETE forever" is about history, not the live `state` column
+
+**Decision:** No code change — this corrects a wrong assumption caught
+in this module's own tests before it shipped. The failed case's
+`cases.state` ends at `RESTART_AUTHORIZED` once the gate completes
+(M04's own transition table already walks it there:
+`CLOSED_INCOMPLETE -> RESTART_REQUESTED -> RESTART_AUTHORIZED`, and
+`RESTART_AUTHORIZED` is one of `TERMINAL_CASE_STATES`), not literally
+`CLOSED_INCOMPLETE`.
+
+**Why:** §5.3's pseudocode is unambiguous about the failed case's own
+walk through both edges before "the system" creates a separate new case
+— it's the more mechanically precise source next to BR-20's looser prose
+summary. "Remains `CLOSED_INCOMPLETE` forever" reads as being about
+history — `case_events`' append-only trail still shows it passed through
+`CLOSED_INCOMPLETE`, and nothing ever rewrites that — not about the
+column's final value. A first draft of this module's own integration
+test asserted the literal (wrong) reading; caught before merge by
+tracing M04's actual transition table rather than trusting the prose in
+isolation.
+
+---
+
+### D-064 — 2026-08-30 — A new, real test-fixture bug: `computeEligibility()`'s upper bound is the first thing in this suite to actually need an exact semester count, and it broke on both sides of every existing convention
+
+**Decision:** M10's integration tests reserve their own block —
+41000-41999 — sitting strictly between `BR02_auto_enrollment_sweep
+.test.ts`'s ceiling (40_004) and `M03_eligibility_route_ownership
+.test.ts`'s floor (50_000). Documented at the top of
+`BR17_restart_guards.test.ts`.
+
+**Why:** A real, previously-invisible bug in the established "low block"
+convention: every module before M10 only ever checked
+`isEligible`/`isPastAutoEnrollBoundary`, one-directional booleans immune
+to over-counting — extra CLOSED semesters above the threshold never flip
+them false, so no one ever noticed that `computeEligibility()`'s "every
+CLOSED semester at or above admission, DB-wide" counting (the real,
+intended BR-01/BR-02 semantics, not a test artifact) silently inflates
+*any* lower admission point by *any* higher block created anywhere in
+the same run. G2 (semesters *remaining*) is the first check in this
+build that's upper-bounded — inflation actually flips its answer. First
+attempt used a "low" block (7000s, below the 10k-40k tier BR02 already
+owns) and was inflated by BR02's own semesters (already in the database,
+since `BR02_auto_enrollment_sweep.test.ts` sorts before this file
+alphabetically). Second attempt used a very high block (2,000,000+, safe
+from that) and broke `M03_eligibility_route_ownership.test.ts`'s own
+exact-count assertion instead, in the opposite direction — this file
+sorts *before* M03's, so its semesters already exist in the database by
+the time M03's test runs, inflating *it*. The 41000-49999 gap is the one
+window safe from both existing neighbours; nothing else in the suite
+currently claims it. This is a structural limitation of sharing one
+un-reset database across a whole test run, not something fixable in
+`computeEligibility()` itself (its DB-wide counting is the correct,
+intended production behaviour) — future modules adding another
+upper-bounded check need to find their own gap the same way, or this
+whole scheme needs a rethink (per-test transactional rollback) if gaps
+run out.
+
+---
+
+### D-065 — 2026-08-30 — `escalations` gets the same append-only privilege hardening M09 gave `grade_reversals`
+
+**Decision:** This module's migration adds
+`REVOKE UPDATE, DELETE ON "escalations" FROM scit_app`.
+
+**Why:** The same real gap, same shape as D-060: M01 revoked
+`UPDATE`/`DELETE` on `audit_events`/`case_events`/`grades` but never on
+`escalations`, despite `Escalation`'s own doc comment already claiming
+finality ("no further transition anywhere in the system reads or
+updates an escalation row once written"). BR-18 calls the Dean's ruling
+"final" — a row that could be silently edited afterward would undercut
+that.
+
+---
+
+### D-066 — 2026-08-30 — A hard guard failure at restart-request time still creates a `RestartRequest` row, `outcome: DENIED`
+
+**Decision:** `requestRestart()` always produces a `RestartRequest`
+row — `PENDING` if the transition succeeds, `DENIED` (with the failing
+guards recorded in `g1Result`/`g2Result`) if G1/G2/G4 rejects it outright
+before the case ever reaches `RESTART_REQUESTED`.
+
+**Why:** M04's transition table gates G1 (exact match)/G2/G4 directly on
+the first edge — a guard failure there means the case never moves at
+all, so it can never later be walked to `RESTART_DENIED` by the HoD-deny
+transition. But BR-19 says exceeding the cap's "only remaining route is
+a Dean-level ruling," which requires *something* escalatable to exist
+even when the case itself never left `CLOSED_INCOMPLETE`. Reading "the
+request" (BR-18) as the `RestartRequest` row rather than `cases.state`
+resolves this: every attempt, whichever guard rejects it and whenever,
+produces exactly one row endeding in `DENIED`, and that row — not the
+case — is what `escalate` operates on. See docs/modules/M10.md "Scope
+decisions" for the full reasoning, including why G5 (distinct signers)
+is deliberately *not* treated the same way.
+
+---
+
+### D-067 — 2026-08-30 — The new linked case starts at `ELIGIBLE` with `company_id` null, not pre-filled with the restart's vetted company
+
+**Decision:** `countersignRestart()`'s new `Case` row carries only
+`studentId`, `state: "ELIGIBLE"`, and `previousCaseId` — never
+`companyId`, even though the new company was already identified and
+vetted by G1.
+
+**Why:** §5.3's pseudocode only specifies `previous_case_id` on the new
+case. Pre-filling `companyId` would let a restart skip BR-07/BR-09's
+offer-submission and relevance-approval steps for the new placement —
+G1 only confirmed the company *differs* from the failed one, not that
+it's an approved placement. The student still submits a real offer
+through the ordinary M05 path, keeping case genesis uniform regardless
+of how a case came to exist. The more restrictive reading: skips no
+business rule.

@@ -6,7 +6,13 @@ import { createUserFixture } from "./prisma-fixtures";
 import { validPdfFile } from "./files";
 import { storeDocument } from "@/server/documents/store";
 import { issueSupervisorToken, submitEvaluation } from "@/server/supervisor/service";
-import { advanceToVerificationIfReady, markVerified, verifyDocument } from "@/server/grading/service";
+import {
+  advanceToVerificationIfReady,
+  awardGrade,
+  markVerified,
+  recommendGrade,
+  verifyDocument,
+} from "@/server/grading/service";
 import { prisma } from "@/server/db/client";
 
 /**
@@ -78,4 +84,34 @@ export async function createVerifiedCase(startSequence: number) {
   await markVerified({ caseId, actor: { userId: focalUserId, roles: ["FOCAL"] } });
 
   return { caseId, studentUserId, focalUserId };
+}
+
+/** Continues from `createVerifiedCase()` through a recommend + HoD
+ * award of "I" (Incomplete) — a real `CLOSED_INCOMPLETE` case, the only
+ * state the restart gate (M10, BR-16) is ever reachable from. The
+ * student's admission point carries `createEligibleStudent()`'s default
+ * 4 CLOSED semesters, so `semestersRemaining` for G2 is
+ * `GRADUATION_BOUNDARY_SEMESTERS - 4` — comfortably >= 1 for every M10
+ * test except the dedicated G2 fixture, which builds its own student
+ * with a different semester count instead of parameterising this chain. */
+export async function createClosedIncompleteCase(startSequence: number) {
+  const { caseId, studentUserId, focalUserId } = await createVerifiedCase(startSequence);
+
+  await recommendGrade({
+    caseId,
+    actor: { userId: focalUserId, roles: ["FOCAL"] },
+    value: "I",
+    reason: "deliverables did not meet the bar",
+  });
+
+  const hod = await createUserFixture();
+  await assignRole(hod.id, "HOD");
+  await awardGrade({
+    caseId,
+    actor: { userId: hod.id, roles: ["HOD"] },
+    value: "I",
+    reason: "confirmed incomplete",
+  });
+
+  return { caseId, studentUserId, focalUserId, hodUserId: hod.id };
 }

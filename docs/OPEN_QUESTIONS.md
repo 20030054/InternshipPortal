@@ -8,8 +8,8 @@ in the code at the point it matters.
 |---|---|---|---|---|
 | OQ-01 | Exact per-semester document submission deadline dates | M03 | Focal Person | Open |
 | OQ-02 | What counts as acceptable verification of a completion certificate — is employer contact required, or is document inspection sufficient? | M09 | Focal Person / HoD | Open — restrictive default applied (any single listed method suffices) |
-| OQ-03 | Confirm `RESTART_CAP` = 1, or a different number | M10 | HoD | Open |
-| OQ-04 | Who holds the Dean role in the system, and is there a delegate? | M10, M11 | Dean's office | Open |
+| OQ-03 | Confirm `RESTART_CAP` = 1, or a different number | M10 | HoD | Open — restrictive default (1) now live and enforced by G4 |
+| OQ-04 | Who holds the Dean role in the system, and is there a delegate? | M10, M11 | Dean's office | Open — M10's escalation ruling now requires one live `DEAN`-role account; no delegate mechanism exists |
 | OQ-05 | Will BNU provide an OIDC/SAML identity provider, or do we manage passwords? | M02 | BNU IT | Open |
 | OQ-06 | Is the roster imported from an existing SIS, and in what format? | M03 | Registrar | Open |
 | OQ-07 | Document retention period per university policy | M06 | Registrar | Open |
@@ -18,6 +18,7 @@ in the code at the point it matters.
 | OQ-10 | Is this deployment SCIT-only, or will other BNU schools share it (affects tenancy)? | M01 | HoD | Open — restrictive default applied |
 | OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04, M05 | Focal Person / whoever designed the process | Open — restrictive default applied, now with a real implementation behind it |
 | OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | Open — restrictive default applied |
+| OQ-13 | Confirm the total programme length in semesters used for the graduation boundary (G2/BR-17) — currently 8, inferred only from §15's seed-data hint ("students across semesters 3 to 8"), never stated directly. Arose implementing M10. | M10 | Registrar / HoD | Open — restrictive default applied |
 
 ## Resolution log
 
@@ -117,3 +118,22 @@ has confirmed. Still genuinely open; if the Focal Person/HoD later
 settle on a stricter policy (e.g. "employer contact is mandatory for
 the completion certificate specifically"), that's a small, additive
 change to `deliverablesVerified()`'s fact-gathering, not a rewrite.
+
+### OQ-13 — restrictive default applied in M10
+
+`GRADUATION_BOUNDARY_SEMESTERS = 8` (`src/server/roster/eligibility.ts`)
+feeds G2's `semestersRemainingBeforeGraduation()`. `MASTER_PROMPT.md`
+never states a total programme length anywhere — the only textual
+anchor in the whole document is §15's seed-data line, "students across
+semesters 3 to 8," which reads as the intended full range of a normal,
+still-enrolled student under a standard 4-year/8-semester BS programme.
+This is an inference from a demo-data hint, not a stated fact. A smaller
+number would make G2 *harder* to pass (more restrictive for granting a
+restart) but would contradict the seed data's own claim that semester 8
+is still a normal enrolled semester, not an overrun one — so 8 is both
+the only textually-grounded choice available and the appropriately
+restrictive one absent a real answer. Still genuinely open; if the
+Registrar/HoD confirm a different length (or that it varies by
+programme — `Student.programme` already exists as a free-text field,
+unused for this), that's a one-line constant change (or a lookup keyed
+on `programme`), not a rewrite of G2 itself.

@@ -34,6 +34,11 @@ export type TransitionContext = {
   restart?: {
     failedCaseCompanyNormalizedName: string | null;
     newCompanyNormalizedName: string;
+    /** G1's registration-number half (M10) — null on either side means
+     * "not available," which never blocks anything (BR-17: "where
+     * available"). */
+    failedCaseCompanyRegistrationNumber?: string | null;
+    newCompanyRegistrationNumber?: string | null;
     /** Full semesters remaining before the graduation boundary — G2. */
     semestersRemaining: number;
     /** How many restarts this student has already had, before this one. */
