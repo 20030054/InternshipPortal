@@ -1,9 +1,8 @@
 import { signIn } from "@/server/auth/config";
+import { Button } from "@/components/ui/button";
 
-// Minimal, deliberately unstyled. Auth.js's `pages.signIn` config
-// (src/server/auth/config.ts) points here so it has somewhere real to
-// send a browser rather than 404ing; M13 replaces this with the designed
-// screen from MASTER_PROMPT.md §10. Not the point of M02.
+// §10's design direction, finally applied — M02's own comment already
+// pointed here: "M13 replaces this with the designed screen."
 export default function LoginPage() {
   async function loginAction(formData: FormData) {
     "use server";
@@ -15,16 +14,22 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-4 px-6">
-      <h1 className="font-serif text-2xl text-deep">Sign in</h1>
-      <form action={loginAction} className="flex flex-col gap-3">
+    <main className="mx-auto flex min-h-screen max-w-sm flex-col justify-center gap-6 px-6">
+      <div>
+        <p className="text-sm font-medium tracking-wide text-muted">
+          School of Computer &amp; Information Technology · BNU
+        </p>
+        <h1 className="mt-1 font-serif text-2xl text-deep">Sign in</h1>
+      </div>
+      <form action={loginAction} className="flex flex-col gap-4">
         <label className="flex flex-col gap-1 text-sm text-ink">
           Email
           <input
             type="email"
             name="email"
             required
-            className="rounded border border-muted/40 px-3 py-2"
+            autoComplete="email"
+            className="rounded border border-muted/40 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mid"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm text-ink">
@@ -33,15 +38,13 @@ export default function LoginPage() {
             type="password"
             name="password"
             required
-            className="rounded border border-muted/40 px-3 py-2"
+            autoComplete="current-password"
+            className="rounded border border-muted/40 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mid"
           />
         </label>
-        <button
-          type="submit"
-          className="mt-2 rounded bg-deep px-4 py-2 text-white"
-        >
+        <Button type="submit" className="mt-2 w-full">
           Sign in
-        </button>
+        </Button>
       </form>
     </main>
   );

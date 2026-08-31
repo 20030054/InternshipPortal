@@ -41,6 +41,13 @@ const EXPECTED: Record<Capability, RoleName[]> = {
   "self.view": ["STUDENT", "FOCAL", "HOD", "DEAN", "ADMIN"],
   "student.view_own": ["STUDENT"],
   "student.view_any": ["FOCAL", "HOD", "DEAN"],
+
+  // M13: screen-level view gates, not in §3 either — see
+  // docs/modules/M13.md "Scope decisions."
+  "dashboard.view_student": ["STUDENT"],
+  "dashboard.view_focal": ["FOCAL"],
+  "dashboard.view_hod": ["HOD"],
+  "dashboard.view_dean": ["DEAN"],
 };
 
 describe("capability matrix matches MASTER_PROMPT.md §3", () => {

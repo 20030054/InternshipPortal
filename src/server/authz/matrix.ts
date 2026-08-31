@@ -25,6 +25,15 @@ import type { RoleName } from "@prisma/client";
  * signature" for a grade reversal, and no row in §3's table covers it —
  * a real gap in the master prompt's own table, not an invented one. See
  * docs/modules/M09.md "Scope decisions."
+ *
+ * `dashboard.view_focal`/`dashboard.view_hod`/`dashboard.view_dean` are
+ * M13's own gap: §3's table is about mutations (open a case, approve an
+ * offer...), and has no row for "who may load which read-only screen."
+ * `case.view_any` alone can't gate `/focal`/`/hod`/`/dean` from each
+ * other — it's held by all three roles at once, by design, for the API
+ * routes it already covers. Three narrow, screen-scoped capabilities,
+ * not a reuse of an unrelated mutation capability as a role proxy. See
+ * docs/modules/M13.md "Scope decisions."
  */
 
 export type Capability =
@@ -54,7 +63,12 @@ export type Capability =
   // M02 scaffolding only — see module doc comment above
   | "self.view"
   | "student.view_own"
-  | "student.view_any";
+  | "student.view_any"
+  // M13: screen-level view gates — see module doc comment above
+  | "dashboard.view_student"
+  | "dashboard.view_focal"
+  | "dashboard.view_hod"
+  | "dashboard.view_dean";
 
 /**
  * capability -> roles allowed to hold it. An empty array (audit.edit) is
@@ -87,6 +101,11 @@ export const CAPABILITY_MATRIX: Readonly<Record<Capability, readonly RoleName[]>
   "self.view": ["STUDENT", "FOCAL", "HOD", "DEAN", "ADMIN"],
   "student.view_own": ["STUDENT"],
   "student.view_any": ["FOCAL", "HOD", "DEAN"],
+
+  "dashboard.view_student": ["STUDENT"],
+  "dashboard.view_focal": ["FOCAL"],
+  "dashboard.view_hod": ["HOD"],
+  "dashboard.view_dean": ["DEAN"],
 } as const;
 
 /** True if any of the given roles is allowed to hold this capability. */

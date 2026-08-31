@@ -1,22 +1,22 @@
 # Progress
 
-**Current module:** M13 — up next, not started
+**Current module:** M14 — up next, not started
 **Last session:** 2026-08-31
 **Build status:** green (`docker compose up --build` succeeds from a clean
 volume state; migrations applied against the compose-network Postgres and
 `scit_app` provisioned; `/api/ready` returns 200 with database and redis
-both `ok: true`; the full M12 arc — a real transition (offer approval)
-producing a real, templated `Notification` row for the student, the
-*same* event independently processed a second time by the live worker
-consuming the real Redis queue (two rows ~24ms apart, one from a direct
-call, one from the real `case-notifications` worker), BR-27's Focal SLA
-sweep escalating a time-travelled breach to every HoD and correctly not
-re-escalating on a re-run, BR-28's supervisor reminder sweep sending a
-first reminder and bumping `reminderCount`, and the HoD digest reporting
-the breach — exercised directly against the real compose-network
-database, not just in tests. `pnpm lint`, `pnpm typecheck`, `pnpm test`
-[195/195], `pnpm test:integration` [307/307] all pass, confirmed on two
-consecutive freshly-recreated temp Postgres/Redis runs.)
+both `ok: true`; `/login` and `/` (redirecting unauthenticated visitors)
+both confirmed rendering over real HTTP through Caddy; the full M13 arc —
+a student's progress line correctly at step 4 then moving live to step 5
+the instant a real offer approval transitions the case, the Focal queue
+correctly listing and SLA-sorting a pending case, the HoD view's counts/
+overdue-eligibility/waivers/restarts all populated from real data, the
+Dean view carrying the same data read-only, a real `@react-pdf/renderer`
+PDF with correct magic bytes, and a real `exceljs` workbook with all five
+expected sheets — exercised directly against the real compose-network
+database, not just in tests. `pnpm lint`, `pnpm typecheck`, `next build`,
+`pnpm test` [224/224], `pnpm test:integration` [334/334] all pass,
+confirmed on two consecutive freshly-recreated temp Postgres/Redis runs.)
 
 ## Completed modules
 - [x] M00 Repo + Docker skeleton
@@ -32,66 +32,74 @@ consecutive freshly-recreated temp Postgres/Redis runs.)
 - [x] M10 The restart gate
 - [x] M11 The waiver path
 - [x] M12 Notifications and SLA escalation
-- [ ] M13 Dashboards and reporting  <- up next, not started
+- [x] M13 Dashboards and reporting
+- [ ] M14 Hardening, backup and handover  <- up next, not started
 
 ## Where I stopped
-Implemented M12 in full per `/docs/modules/M12.md`. The key
-architectural decision: rather than editing six already-shipped service
-files to each add their own "send an email" call after their own
-`executeTransition()`/`executeSystemTransition()` calls, a single hook
-lives at the end of `executeTransition()` itself (M04) — the one code
-path every one of M05-M11's transitions already flows through. It
-enqueues a `case-notifications` BullMQ job (best-effort, swallowed on
-failure, never able to make a legitimate already-committed state change
-look like it failed); a worker handler
-(`dispatchTransitionNotification()`) looks up a template by the
-transition's own `emitsEvent` in a new registry
-(`src/server/notifications/templates.ts`, one entry per one of the 20
-distinct events the real table produces, including deliberate
-`recipients: []` no-ops with their own documented reasoning) and
-delivers via the existing `Notification` model (M01, unused until now)
-— `QUEUED` → `SENT`/`FAILED`, no automatic retry.
+Implemented M13 in full per `/docs/modules/M13.md` — the first UI
+module. Every prior module shipped an API surface with no screen behind
+it; M00's placeholder home page and M02's deliberately unstyled login
+page both said so explicitly ("replaced entirely by M13"). Built on
+M00's already-scaffolded design system (`tailwind.config.ts`'s §10
+palette, `globals.css`, `components.json`'s shadcn conventions, never
+exercised until now): four screens (`/` role-dispatching to the
+student's own progress line or redirecting staff to their own screen,
+`/focal`, `/hod`, `/dean`), hand-written `Button`/`Badge`/`Card`
+primitives against `components.json`'s own conventions rather than the
+shadcn CLI, a shared `DataTable` (TanStack Table v8 — pinned below the
+newly-released, still-undocumented v9 — see D-079), a case-summary PDF
+(`@react-pdf/renderer`) and an HoD department XLSX export (`exceljs`,
+§6.1 names no XLSX library — D-080).
 
-BR-27 (`src/server/sla/focal-sla.ts`/`service.ts`): a working-days
-calculator (Sat/Sun only, no BNU holiday calendar — logged as **OQ-14**)
-and a sweep escalating any case stuck in `OFFER_UNDER_REVIEW`/
-`PENDING_VERIFICATION` past `SLA_DAYS`, deduplicated per *stay* (not per
-case, since `OFFER_UNDER_REVIEW` is re-enterable after a rejection/
-resubmission cycle). BR-28 (`src/server/sla/service.ts`): pure delivery
-on top of M08's already-built detection logic
-(`classifyTokenForReminder()`) — a reminder to the supervisor's own
-email at each threshold, then a one-time escalation to every FOCAL user.
-A digest sweep reports exactly what this module tracks (Focal-SLA
-breaches, supervisor escalations) and is skipped entirely on an empty
-day — the fuller dashboard picture is explicitly M13's job.
+Four new capabilities (`dashboard.view_student`/`_focal`/`_hod`/`_dean`,
+D-082) gate the four screens — §3's eighteen rows are all about
+mutations, none of them answer "who may load which read-only screen,"
+and `case.view_any` alone can't discriminate `/focal` from `/hod` from
+`/dean` since all three roles hold it at once by design. Every dashboard
+is read-only by this module's own explicit scope decision (D-083) —
+action-taking forms for the routes M05-M11 already built are a real,
+separable follow-on, not something this module's own done-criterion
+needs. "Overdue eligibility" (D-084) reads as eligible-and-zero-cases —
+the earliest real "at risk of not graduating" signal, directly answering
+the module's own done-criterion on `/hod`.
 
-Two real bugs/false starts caught during verification: `case_events`
-has been append-only at the privilege level since M01 (`REVOKE UPDATE,
-DELETE`, BR-26) — a first draft of this module's own tests tried to
-backdate a `CaseEvent.createdAt` directly and failed with a genuine
-`permission denied` error. Fixed by having the sweep functions accept
-an explicit `now: Date` parameter and passing a travelled value instead
-— the correct shape for a "time-travelled test" in the first place, not
-a workaround (D-077). And several of this module's own test assertions
-initially hardcoded small absolute recipient counts (e.g. "exactly 2
-HODs notified"), not accounting for the fact that role-targeted
-notifications correctly go to *every* user holding that role across the
-whole shared test database — dozens of HOD/FOCAL users accumulated by
-other test files, not a bug in the notification system. Fixed by
-following `BR02_auto_enrollment_sweep.test.ts`'s own established
-precedent: never assert an absolute total against a function with
-DB-wide scope, only that *this test's own* fixture is correctly
-reflected.
+Two real tooling gaps found and fixed, not by the user: Vitest's default
+transform pipeline in this dependency version is Oxc (Rolldown's Rust
+transformer), which silently ignores `esbuild.jsx` once both are
+configured — no test had ever imported a `.tsx` file before this module
+needed to test the PDF export, so this was invisible until now. Fixed by
+disabling Oxc explicitly (`oxc: false`) alongside the `esbuild.jsx`
+override in both Vitest configs (D-086). And a live-verification-script-
+only issue: bare `tsx` CLI invocations default to the classic JSX
+transform (needing `React` in scope) unlike Next's own automatic-runtime
+SWC build — fixed with an explicit, harmless `import React from "react"`
+in the one `.tsx` file outside `src/app`/`src/components`.
+
+One real, more consequential test-fixture bug, a direct extension of
+D-064's lesson from M10: two of this module's own tests needed G2
+(BR-17, "time remains") to genuinely pass, and reused D-064's specific
+41000-49999 numeric window without re-deriving whether it still held —
+it didn't, because unlike the BR-prefixed files that established that
+window (all sorting *before* `M03_...` alphabetically), every M13 file
+sorts *after* it, so `M03_eligibility_route_ownership.test.ts`'s own
+50000+ blocks — and `M03_semester_admin_routes.test.ts`'s
+`nextSequenceNumber()`-assigned semesters, observed reaching into the
+tens of millions in a real run — already exist by the time M13's tests
+run. Fixed with a much higher, hundreds-of-millions block instead of a
+narrow "below X" window (D-087) — a generalised version of the lesson
+for whichever future module hits this next.
 
 ## Next action
-Write `/docs/modules/M13.md`, then implement the student case view
-(rendered as the eight-step progress line), the Focal Person work queue
-(sorted by SLA risk — `runFocalSlaSweep()`'s own breach computation is
-already real and reusable here), the HoD department view (counts by
-state, overdue eligibility, pending verifications, all waivers, all
-restarts — the fuller picture M12's digest deliberately left out), a
-Dean read-only view, and XLSX/PDF exports. **Done when** the HoD can
-answer "who is at risk of not graduating" in one screen.
+Write `/docs/modules/M14.md`, then implement security headers, CSP,
+rate limiting, CSRF, a dependency audit, the §9 penetration checklist,
+a backup and restore rehearsal, an operator runbook, and an admin
+training document. **Done when** a restore from backup into an empty
+environment reproduces the system exactly. This is the master prompt's
+final module (§7) — M14's own done-criterion doubles as the project's
+overall acceptance bar (§11): "every business rule BR-01 to BR-28 has a
+passing named test... a backup taken on one machine restores correctly
+on another... the runbook is complete enough that a new administrator
+can perform every operational task from it alone."
 
 ## Blocked on
 - OQ-14 (BNU holiday calendar / weekend convention for BR-27's working-
@@ -101,17 +109,20 @@ answer "who is at risk of not graduating" in one screen.
   applied in M10, inferred only from a seed-data hint; needs a real
   Registrar/HoD answer.
 - OQ-09 (does a waiver appear on the transcript differently from a
-  pass?) — genuinely open; relevant to M13's reporting/transcript story.
+  pass?) — genuinely open; M13's dashboards never conflate `WAIVER_
+  GRANTED` with `CLOSED_PASS`, precisely so this can still be answered
+  either way without a rewrite.
 - OQ-04 (who holds the Dean role, is there a delegate) — both M10's
   escalation route and M11's final waiver signature already require one
-  live `DEAN`-role account with no delegate mechanism.
+  live `DEAN`-role account with no delegate mechanism; `/dean` now makes
+  this visible on a real screen too.
 - OQ-03 (confirm `RESTART_CAP` = 1) — the default is live and enforced
   by G4 as of M10; the number itself is still unconfirmed by the HoD.
 - OQ-02 (completion certificate verification standard) — restrictive
   default (any single listed method) applied in M09.
-- OQ-07 (document retention period) — doesn't block M12/M13, but the
+- OQ-07 (document retention period) — doesn't block M13/M14, but the
   vault's eventual purge/retention behavior needs a real answer before
-  M14's backup/retention story is complete.
+  M14's own backup/retention story is complete.
 - OQ-08 (evaluation visibility to students) — restrictive default
   (hidden) applied in M08, exactly as the master prompt specified.
 - OQ-01 (per-semester document deadlines) — `semesters.document_deadline`

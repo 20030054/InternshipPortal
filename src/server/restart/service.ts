@@ -338,3 +338,11 @@ export async function listRestartRequestsForCase(caseId: string): Promise<Restar
     orderBy: { createdAt: "asc" },
   });
 }
+
+/** M13/BR-24-adjacent: the HoD/Dean department view's "all restarts" —
+ * the master prompt only names waivers explicitly for permanent
+ * dashboard visibility (BR-24), but §7's M13 summary lists "all
+ * restarts" as its own department-view item alongside them. */
+export async function listAllRestartRequests(): Promise<RestartRequest[]> {
+  return prisma.restartRequest.findMany({ orderBy: { createdAt: "desc" } });
+}

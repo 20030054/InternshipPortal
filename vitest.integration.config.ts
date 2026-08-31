@@ -10,6 +10,12 @@ export default defineConfig({
   resolve: {
     tsconfigPaths: true,
   },
+  // See vitest.config.ts's own comment on these two lines — tsconfig's
+  // `jsx: "preserve"` needs an explicit override, and this Vite
+  // version's default Oxc transform pipeline ignores `esbuild.jsx`
+  // entirely unless Oxc itself is disabled first.
+  oxc: false,
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     include: ["tests/integration/**/*.test.ts"],
