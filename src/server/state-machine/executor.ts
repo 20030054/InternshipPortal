@@ -3,6 +3,30 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import type { Transition, TransitionActor, TransitionContext } from "./types";
 import { TRANSITIONS } from "./transitions";
+import { getCaseNotificationsQueue } from "@/server/jobs/queue";
+
+/** M12: best-effort. The transition's own DB write already committed by
+ * the time this runs — a Redis/BullMQ failure here must never make
+ * `executeTransition()` throw and mislead a caller into thinking the
+ * state change itself failed. Logged, not propagated. */
+async function enqueueTransitionNotification(
+  caseEventId: string,
+  emitsEvent: string,
+): Promise<void> {
+  try {
+    await getCaseNotificationsQueue().add("notify", { caseEventId, emitsEvent });
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        level: "error",
+        msg: "failed to enqueue case-notifications job",
+        caseEventId,
+        emitsEvent,
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+}
 
 /**
  * The only code path in this system permitted to write `cases.state`.
@@ -144,7 +168,7 @@ export async function executeTransition(
     throw new TransitionGuardError(failures);
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const { updated, caseEventId } = await prisma.$transaction(async (tx) => {
     // The one statement in the entire codebase permitted to set this
     // flag. SET LOCAL scopes it to this transaction only — it cannot
     // leak into a later, unrelated write on a pooled connection.
@@ -155,7 +179,7 @@ export async function executeTransition(
       data: { state: to },
     });
 
-    await tx.caseEvent.create({
+    const caseEvent = await tx.caseEvent.create({
       data: {
         caseId,
         actorUserId: actorUserId(actor),
@@ -177,8 +201,14 @@ export async function executeTransition(
       },
     });
 
-    return result;
+    return { updated: result, caseEventId: caseEvent.id };
   });
+
+  // M12: enqueued *after* the transaction commits, deliberately — a
+  // Redis hiccup must never roll back a legitimate, already-guarded
+  // state change. Delivery itself is fully decoupled from this call;
+  // see docs/modules/M12.md "Scope decisions."
+  await enqueueTransitionNotification(caseEventId, transition.emitsEvent);
 
   return { id: updated.id, state: updated.state };
 }

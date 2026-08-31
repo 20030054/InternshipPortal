@@ -3,6 +3,7 @@ import { prisma } from "@/server/db/client";
 import { executeTransition } from "@/server/state-machine/executor";
 import type { TransitionActor } from "@/server/state-machine/types";
 import { storeDocument } from "@/server/documents/store";
+import { notifyWaiverInitiated } from "@/server/notifications/service";
 
 export type Actor = { userId: string; roles: readonly RoleName[] };
 
@@ -140,6 +141,11 @@ export async function initiateWaiver(input: {
     });
     return created;
   });
+
+  // M12: a genesis insert, so it never goes through executeTransition()'s
+  // generic notification hook — the HoD needs to know from the moment a
+  // waiver is requested, not just once the Dean's turn comes.
+  await notifyWaiverInitiated(kase.id);
 
   return { case: kase, waiver };
 }

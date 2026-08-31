@@ -39,6 +39,7 @@ test-results/
 
 # Local Claude Code settings (machine-specific permissions, not project config)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 
 # UPLOAD_DIR target for local test runs / dev outside Docker (the compose
 # stack uses the scit_uploads named volume instead — see docker-compose.yml)

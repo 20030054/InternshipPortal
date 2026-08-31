@@ -19,6 +19,7 @@ in the code at the point it matters.
 | OQ-11 | Is a `Case` auto-created (in `ELIGIBILITY_PENDING`) for every student at admission, or only once eligible/on student action? Arose implementing M03, not in the original §12 list. | M03, M04, M05 | Focal Person / whoever designed the process | Open — restrictive default applied, now with a real implementation behind it |
 | OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | **Resolved in M11** — see resolution log |
 | OQ-13 | Confirm the total programme length in semesters used for the graduation boundary (G2/BR-17) — currently 8, inferred only from §15's seed-data hint ("students across semesters 3 to 8"), never stated directly. Arose implementing M10. | M10 | Registrar / HoD | Open — restrictive default applied |
+| OQ-14 | Does BNU observe specific public holidays that should pause BR-27's "working days" SLA clock, and what is the weekend (Sat-Sun assumed)? Arose implementing M12. | M12 | HoD / Registrar | Open — restrictive default applied (Sat-Sun weekend only, no holiday calendar) |
 
 ## Resolution log
 
@@ -155,3 +156,19 @@ Registrar/HoD confirm a different length (or that it varies by
 programme — `Student.programme` already exists as a free-text field,
 unused for this), that's a one-line constant change (or a lookup keyed
 on `programme`), not a rewrite of G2 itself.
+
+### OQ-14 — restrictive default applied in M12
+
+`workingDaysElapsed()` (`src/server/sla/focal-sla.ts`) treats every day
+that isn't Saturday or Sunday as a working day for BR-27's SLA clock —
+no BNU public-holiday calendar exists anywhere in this build, and
+`MASTER_PROMPT.md` never lists one. Not excluding extra holidays is the
+more restrictive reading for BR-27's own purpose: the clock keeps
+running through a public holiday, which protects the student (the SLA
+breaches sooner, not later), not the Focal Person. The weekend itself
+(Saturday-Sunday) is also assumed, not confirmed — a reasonable default
+for a contemporary Pakistani university, but genuinely unverified.
+Still open; if the HoD/Registrar confirm a real holiday calendar or a
+different weekend convention, that's an additive change to
+`countWeekendDaysBetween()` (and, for holidays, a small lookup table),
+not a rewrite of BR-27's escalation logic itself.

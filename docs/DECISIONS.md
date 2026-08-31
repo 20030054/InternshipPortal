@@ -1364,3 +1364,137 @@ master prompt's own table never named), this isn't a gap: `case.view_any`
 already means exactly "FOCAL/HOD/DEAN can view any case," and a waiver
 is now a real `Case` row (D-068). Reusing an existing capability that
 already fits, not inventing a twentieth one.
+
+---
+
+### D-071 — 2026-08-31 — One integration point for "every status change": a hook in `executeTransition()`, not six edited service files
+
+**Decision:** `executeTransition()` (M04) enqueues a `case-notifications`
+job at the end of every successful transition, carrying the just-created
+`CaseEvent`'s id and the row's own `emitsEvent`. Genesis inserts (BR-02's
+sweep, M10's restart, M11's waiver) don't go through it — M11's waiver
+gets one explicit, targeted notification call instead (`initiateWaiver()`
+now calls `notifyWaiverInitiated()`); the others don't need one (see
+docs/modules/M12.md "Scope decisions").
+
+**Why:** Every one of M05 through M11's transitions already flows
+through this one function — it's the only code path in the system
+permitted to write `cases.state` at all (BR-25). Editing six already-
+shipped, already-tested service files to each add their own notification
+call after their own `executeTransition()` calls would mean six chances
+to miss one, or to introduce a regression in code that's already proven
+correct, for a change that's fundamentally the same one line each time.
+
+---
+
+### D-072 — 2026-08-31 — Notification delivery is decoupled from the request cycle; a failed send is `FAILED`, never automatically retried
+
+**Decision:** The executor hook only enqueues (best-effort, swallowed on
+failure — a Redis hiccup must never make a legitimate, already-committed
+state change look like it failed). A BullMQ worker does the actual send.
+`Notification.status` goes `QUEUED` → `SENT`/`FAILED` after exactly one
+`sendMail()` attempt — no BullMQ `attempts` retry configured.
+
+**Why:** A slow or down SMTP relay must never stall an approve-offer/
+award-grade/etc. API call — that's what makes enqueue-then-deliver worth
+the extra moving part. Once delivery is already async, a stale
+notification retried hours later (after the underlying case may have
+moved on again) isn't obviously better than a visible `FAILED` row —
+and automatic retry would either duplicate a `Notification` row per
+attempt (breaking BR-27/28's "was this already sent" dedup, which reads
+this exact table) or need extra bookkeeping for no clear benefit this
+module's done-criterion asks for.
+
+---
+
+### D-073 — 2026-08-31 — Role-targeted notifications go to every current holder of the role, not a per-case assignment
+
+**Decision:** `usersWithRole()` resolves every `FOCAL`/`HOD`/`DEAN`
+notification target — there is no "assigned Focal Person" (or HoD, or
+Dean) on any `Case` anywhere in this schema.
+
+**Why:** The whole authority matrix (MASTER_PROMPT.md §2/§3) is
+role-based, not assignment-based — `requireCapability()` never checks
+"is this the right Focal Person for this case," only "does this user
+hold the FOCAL role." A notification system built on a per-case
+assignment this build doesn't have would be inventing structure, not
+following it. For one Focal Person this is invisible; for a larger
+department it means everyone holding the role sees everything, the
+safer default.
+
+---
+
+### D-074 — 2026-08-31 — BR-27's SLA clock runs only in `OFFER_UNDER_REVIEW` and `PENDING_VERIFICATION`
+
+**Decision:** `runFocalSlaSweep()` only ever considers these two states.
+
+**Why:** Every other state a case can be in is either not Focal-pending
+at all (`ELIGIBLE`, `OFFER_REJECTED` — waiting on the student) or
+transient by construction: `OFFER_SUBMITTED` and `APPROVED` are both
+immediately walked forward by a `SYSTEM` transition inside the same
+service call that creates them (M05's `submitOffer()`/`approveOffer()`),
+so a case never actually rests there long enough for an SLA clock to
+mean anything.
+
+---
+
+### D-075 — 2026-08-31 — "Working days" excludes only Saturday/Sunday; no BNU holiday calendar
+
+**Decision:** `workingDaysElapsed()` treats every non-weekend day as a
+working day. Logged as **OQ-14**.
+
+**Why:** `MASTER_PROMPT.md` never specifies a holiday calendar, and none
+exists anywhere in this build's scaffolding. Not excluding extra
+holidays is the more restrictive reading for BR-27's own purpose — the
+clock keeps running through a public holiday, protecting the student
+more, not less. A real BNU calendar (if one exists) would be a small,
+additive refinement to this one function.
+
+---
+
+### D-076 — 2026-08-31 — The Focal-SLA "already escalated" check is scoped to the current stay in the pending state, not the case's whole history
+
+**Decision:** `runFocalSlaSweep()`'s dedup query is
+`Notification` for this `caseId` + template, `createdAt >=` the most
+recent `CaseEvent` that entered the pending state — not "ever, for this
+case."
+
+**Why:** `OFFER_UNDER_REVIEW` is re-enterable — a rejected offer that
+gets revised and resubmitted cycles back through it. An escalation sent
+during an *earlier* review cycle must not silently suppress a real one
+in a *later* cycle for the same case.
+
+---
+
+### D-077 — 2026-08-31 — Time-travelled tests pass a future `now` to the sweep functions; they never mutate `CaseEvent.createdAt`
+
+**Decision:** `runFocalSlaSweep()`/`runSupervisorReminderSweep()`/
+`runHodDigest()` all take an optional `now: Date` parameter. This
+module's own tests construct a real case/token at real "now," then call
+the function with `now` travelled forward by the relevant number of
+days — never an `UPDATE` against an existing timestamp.
+
+**Why:** Found while writing this module's own tests: `case_events` has
+been append-only at the privilege level since M01 (`REVOKE UPDATE,
+DELETE`, BR-26) — `scit_app` genuinely cannot backdate a `CaseEvent` row,
+in tests or in production. A first draft of these tests tried exactly
+that and failed with a real `permission denied` error before ever
+reaching a logic bug. Passing a travelled `now` is not a workaround for
+that constraint — it's the correct shape for "time-travelled test" in
+the first place, and was already how these functions were designed
+before the mistake was made.
+
+---
+
+### D-078 — 2026-08-31 — The HoD digest reports only Focal-SLA breaches and supervisor escalations, and is skipped entirely when there's nothing to report
+
+**Decision:** `runHodDigest()` covers exactly the two things
+`src/server/sla/service.ts` itself tracks. It sends zero emails — and
+logs zero `Notification` rows — on a day with nothing to report.
+
+**Why:** MASTER_PROMPT.md §7 gives M13 the fuller "counts by state,
+overdue eligibility, pending verifications, all waivers, all restarts"
+dashboard picture explicitly — duplicating any of that here would be
+guessing at M13's own scope. A guaranteed-empty daily email trains its
+recipient to stop reading it, which would defeat a *real* digest's
+purpose once M13 extends this one.

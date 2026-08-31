@@ -36,3 +36,58 @@ export function getRosterSweepQueue(): Queue {
   }
   return queue;
 }
+
+// ---------------------------------------------------------------------
+// M12: notifications and SLA escalation
+// ---------------------------------------------------------------------
+
+export const CASE_NOTIFICATIONS_QUEUE_NAME = "case-notifications";
+export const SLA_ESCALATION_QUEUE_NAME = "sla-escalation-sweep";
+export const SUPERVISOR_REMINDER_QUEUE_NAME = "supervisor-reminder-sweep";
+export const HOD_DIGEST_QUEUE_NAME = "hod-digest";
+
+/** Not specified by the master prompt; SLA windows are measured in
+ * days, so daily is the natural cadence for all three periodic jobs —
+ * more frequent would just re-check a state that hasn't changed.
+ * Logged in DECISIONS.md. */
+export const SLA_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000; // daily
+
+let caseNotificationsQueue: Queue | null = null;
+export function getCaseNotificationsQueue(): Queue {
+  if (!caseNotificationsQueue) {
+    caseNotificationsQueue = new Queue(CASE_NOTIFICATIONS_QUEUE_NAME, {
+      connection: createConnection(),
+    });
+  }
+  return caseNotificationsQueue;
+}
+
+let slaEscalationQueue: Queue | null = null;
+export function getSlaEscalationQueue(): Queue {
+  if (!slaEscalationQueue) {
+    slaEscalationQueue = new Queue(SLA_ESCALATION_QUEUE_NAME, {
+      connection: createConnection(),
+    });
+  }
+  return slaEscalationQueue;
+}
+
+let supervisorReminderQueue: Queue | null = null;
+export function getSupervisorReminderQueue(): Queue {
+  if (!supervisorReminderQueue) {
+    supervisorReminderQueue = new Queue(SUPERVISOR_REMINDER_QUEUE_NAME, {
+      connection: createConnection(),
+    });
+  }
+  return supervisorReminderQueue;
+}
+
+let hodDigestQueue: Queue | null = null;
+export function getHodDigestQueue(): Queue {
+  if (!hodDigestQueue) {
+    hodDigestQueue = new Queue(HOD_DIGEST_QUEUE_NAME, {
+      connection: createConnection(),
+    });
+  }
+  return hodDigestQueue;
+}
