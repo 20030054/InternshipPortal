@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { rolesGrantCapability } from "@/server/authz/matrix";
 import { prisma } from "@/server/db/client";
 import { getStudentDashboard } from "@/server/dashboards/student-view";
 import { ProgressLine } from "@/components/progress-line";
 import { Card, CardTitle } from "@/components/ui/card";
+import { OpenCaseButton } from "@/components/case-actions/open-case-button";
 
 /**
  * §10: "The eight-step progress line is the student's entire home
@@ -55,9 +57,14 @@ export default async function Home() {
           </CardTitle>
           <p className="mt-2 text-sm text-ink">
             {dashboard.isEligible
-              ? "You've completed enough semesters for the internship course. Secure an offer and submit your offer letter to open a case."
+              ? "You've completed enough semesters for the internship course. Open a case, then submit your offer letter."
               : "You'll become eligible for the internship course once you've completed enough semesters. Nothing to do yet."}
           </p>
+          {dashboard.isEligible && (
+            <div className="mt-4">
+              <OpenCaseButton />
+            </div>
+          )}
         </Card>
       ) : (
         <Card>
@@ -65,6 +72,12 @@ export default async function Home() {
           <div className="mt-4">
             <ProgressLine progress={dashboard.progress} />
           </div>
+          <Link
+            href={`/cases/${dashboard.caseId}`}
+            className="mt-4 inline-block text-sm font-medium text-mid underline-offset-2 hover:underline"
+          >
+            View case details &amp; next steps →
+          </Link>
         </Card>
       )}
     </main>

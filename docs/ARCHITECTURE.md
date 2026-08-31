@@ -151,3 +151,30 @@ makes path traversal structurally impossible rather than merely filtered.
 Full environment variable list, volume table and the operator runbook
 outline: `MASTER_PROMPT.md` §8.2–§8.3 (the runbook itself is written during
 M14 as `/docs/RUNBOOK.md`).
+
+## 4. UI layer
+
+Two kinds of screen, both Server Components fetching directly via
+Prisma/service functions — never a page `fetch()`ing its own API:
+
+- **Dashboards** (`/`, `/focal`, `/hod`, `/dean`) — read-only, built in
+  M13. `DataTable` (TanStack Table) for every list; `Card`/`CardTitle`/
+  `Badge`/`Button` (hand-written against `components.json`'s shadcn
+  conventions, not the CLI — D-079) for everything else.
+- **`/cases/:id`** — one screen per case, added post-master-prompt as
+  M15 (`docs/modules/M15.md`; not one of §7's fifteen modules). Same
+  `case.view_own`/`case.view_any` + "404, not 403" ownership pattern
+  every per-case API route has used since M05. Renders whichever
+  action forms the viewer's capabilities and the case's current state
+  make relevant (D-102) — every form is a thin client component
+  (`src/components/case-actions/*.tsx`) built on one shared wrapper
+  (`src/components/action-form.tsx`, D-101) that `fetch()`s the
+  already-existing, already-tested `/api/**` route directly, with zero
+  new server-side mutation logic anywhere in this layer. Dashboard rows
+  link into this page rather than growing bespoke inline actions of
+  their own.
+
+Restart-gate and waiver-path forms (the two "exception paths," §1.2)
+are not built yet — every one of those routes is real, tested, and
+reachable via the API/`docs/RUNBOOK.md` today; only their UI is a
+deliberate, documented gap (`docs/modules/M15.md` "Scope").

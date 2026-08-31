@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import type {
   HodDashboard,
@@ -18,7 +19,15 @@ const overdueColumns: ColumnDef<OverdueEligibilityRow, unknown>[] = [
 ];
 
 const pendingVerificationColumns: ColumnDef<PendingVerificationRow, unknown>[] = [
-  { accessorKey: "studentName", header: "Student" },
+  {
+    accessorKey: "studentName",
+    header: "Student",
+    cell: ({ row }) => (
+      <Link href={`/cases/${row.original.caseId}`} className="font-medium text-deep hover:underline">
+        {row.original.studentName}
+      </Link>
+    ),
+  },
   {
     accessorKey: "companyName",
     header: "Company",

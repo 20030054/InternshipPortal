@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sendMail } from "@/server/mail/transport";
 import { POST } from "@/app/api/cases/[id]/supervisor-token/route";
 import { sessionState } from "./setup";
 import {
@@ -115,6 +116,34 @@ describe("M08: POST /api/cases/:id/supervisor-token", () => {
       where: { entityType: "case", entityId: kase.id, eventType: "SUPERVISOR_TOKEN_ISSUED" },
     });
     expect(audit.actorUserId).toBe(focal.id);
+  });
+
+  it("M15: a real SMTP failure returns 503 mail_unavailable, not an unhandled 500 — and the token is still usable to retry", async () => {
+    const kase = await docsPendingCase();
+    const focal = await createUserFixture();
+    await assignRole(focal.id, "FOCAL");
+    sessionState.current = { user: { id: focal.id } };
+
+    vi.mocked(sendMail).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const response = await POST(issueRequest("supervisor@acme.test"), {
+      params: Promise.resolve({ id: kase.id }),
+    });
+    expect(response.status).toBe(503);
+    const body = await response.json();
+    expect(body.error).toBe("mail_unavailable");
+
+    // A retry (relay reachable this time) succeeds and revokes the
+    // token the failed attempt already created — no orphaned/duplicate
+    // live tokens left behind by the failure.
+    const retry = await POST(issueRequest("supervisor@acme.test"), {
+      params: Promise.resolve({ id: kase.id }),
+    });
+    expect(retry.status).toBe(200);
+
+    const liveTokens = await prisma.supervisorToken.findMany({
+      where: { caseId: kase.id, usedAt: null, revokedAt: null },
+    });
+    expect(liveTokens).toHaveLength(1);
   });
 
   it("a second issuance revokes the first live token", async () => {

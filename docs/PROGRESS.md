@@ -1,12 +1,12 @@
 # Progress
 
-**Current module:** none — M14 complete. All 15 modules (M00-M14) from
-`MASTER_PROMPT.md` §7 are built. This was the master prompt's own final
-module; there is no "next module" to point at.
+**Current module:** none — M00 through M14 (all fifteen `MASTER_PROMPT.md`
+§7 modules) and M15 (a post-master-prompt addition — see below) are all
+complete.
 **Last session:** 2026-08-31
 **Build status:** green. `pnpm lint`, `pnpm exec tsc --noEmit`, `next
-build`, `pnpm test` [241/241], `pnpm test:integration` [357/357] all
-pass, confirmed on two consecutive freshly-recreated temp Postgres/
+build`, `pnpm test` [241/241], `pnpm test:integration` [358/358] all
+pass, confirmed on multiple consecutive freshly-recreated temp Postgres/
 Redis runs. `pnpm audit` reports zero known vulnerabilities. A full,
 real `docker compose up --build` from a clean volume state (all 7
 services, every one reaching `healthy`) was exercised end to end: real
@@ -37,8 +37,65 @@ verified to match the source exactly.
 - [x] M12 Notifications and SLA escalation
 - [x] M13 Dashboards and reporting
 - [x] M14 Hardening, backup and handover
+- [x] M15 Action-taking UI — **not** one of §7's fifteen modules; a
+  post-master-prompt addition (`docs/modules/M15.md`) requested after
+  M14 shipped, closing the gap between "every route exists and is
+  tested" and "a person can actually use this."
 
 ## Where I stopped
+
+### M15 — Action-taking UI
+
+Implemented M15 in full per `/docs/modules/M15.md`. M13 (dashboards)
+was deliberately read-only — every mutation from M05 through M09 had
+a real, tested API route and no UI to reach it from. This module adds
+one new screen, `/cases/:id`, and eleven action forms covering the
+entire normal eight-step path (Student: open case, submit offer, log
+progress, mark internship complete, upload completion certificate;
+Focal: approve/reject offer, issue supervisor evaluation link, verify
+a deliverable, mark fully verified, recommend grade; HoD: award
+grade). Zero new server-side mutation logic — every form is a thin
+client component (`src/components/action-form.tsx`, `src/components/
+case-actions/*.tsx`) calling an already-existing, already-tested
+`/api/**` route with the session cookie, gated by capability +
+one-state comparison against the real transition table, never a
+re-implementation of the real guards (D-101/D-102).
+
+Proven with one real case walked start to finish against a full
+`docker compose` stack — not per-form spot checks — from
+`ELIGIBILITY_PENDING` through a real `CLOSED_PASS`, confirming at
+every step that the right role sees the right form at the right state
+and nothing else (an owning Student, a different Student — genuine
+404, not 403 — Focal, HoD and Dean each rendering correctly different
+subsets of the same page for the same case), and that
+`isGraduationEligible` (BR-03, M14) independently flips to `true` as a
+direct downstream consequence (D-104).
+
+One real bug found in exactly that walkthrough, not by reading code:
+`POST /api/cases/:id/supervisor-token` 500'd on the very first attempt
+against a genuinely unreachable SMTP relay — an unhandled `sendMail()`
+rejection, pre-existing since M08, invisible until this module's live
+verification actually exercised the route outside its own mocked test
+suite. Fixed for real (a clean `503 mail_unavailable`, safe to retry,
+with a new negative test proving both the failure response and that a
+retry doesn't leave a duplicate live token behind) rather than left as
+a known gap — the same standard M14's own backup/restore bugs were
+held to (D-103).
+
+**Explicitly not built:** UI forms for the two "exception paths" (§1.2)
+— the restart gate and the waiver path. Both are real, fully tested,
+and reachable via the API/`docs/RUNBOOK.md` today; only their UI is a
+deliberate, documented scope boundary (`docs/modules/M15.md`), kept
+out to keep this addition finishable and honest about what it covers.
+
+A ready-to-send questionnaire for BNU (`docs/BNU_QUESTIONNAIRE.md`)
+was also written this session, compiling every item in
+`docs/OPEN_QUESTIONS.md` into plain-language questions grouped by
+which office should answer them — not something this codebase can
+answer on its own, but worth having in a form someone can actually
+send.
+
+### M14 — Hardening, backup and handover
 
 Implemented M14 in full per `/docs/modules/M14.md`. The single biggest
 piece of this module was discovering — and fixing, for real, not just
@@ -143,13 +200,26 @@ Admin, distinct from the RUNBOOK's infrastructure focus).
 
 ## Next action
 
-None — this was the final module. If a future session picks this back
-up, the natural next steps are the genuinely open items below (all
-policy questions for BNU, not implementation gaps), or a real UI
-build-out for the M05-M11 action-taking forms M13 deliberately left
-read-only-only (see M13's own D-083).
+Two real candidates, both explicitly scoped out rather than forgotten:
+
+- **Restart-gate and waiver-path UI forms** — the same shape as M15's
+  normal-path forms, for the two exception paths (§1.2). Every route
+  they'd call already exists and is tested; this is UI-only work,
+  same as M15 itself.
+- **Real infrastructure to deploy to** — everything is deployment-
+  ready (`docs/RUNBOOK.md` §1 is the exact, verified walkthrough), but
+  standing up a real domain/server is outside what this codebase or
+  session can do alone; needs a human decision on where.
+
+Otherwise: the genuinely open items below are all policy questions for
+BNU, not implementation gaps — `docs/BNU_QUESTIONNAIRE.md` is ready to
+send.
 
 ## Blocked on
+
+All of the below are compiled into one ready-to-send document,
+`docs/BNU_QUESTIONNAIRE.md`, grouped by which BNU office should answer
+each one.
 
 - OQ-14 (BNU holiday calendar / weekend convention for BR-27's working-
   days clock) — restrictive default (Sat-Sun only, no holidays) applied

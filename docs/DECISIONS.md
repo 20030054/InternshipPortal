@@ -2085,3 +2085,122 @@ exist, and `scit_app` is created by the init migration, not by
 Postgres's own bootstrap; the real precondition is "`prisma migrate
 deploy` has run against the target at least once," now stated
 correctly.
+
+---
+
+### D-101 — 2026-08-31 — M15's action forms call the existing `/api/**` routes directly; no Next.js Server Actions
+
+**Decision:** Every new action-taking form (`src/components/case-actions/*.tsx`)
+is a client component that `fetch()`s an already-existing, already-
+tested `/api/**` route handler with `credentials: "same-origin"` —
+`src/components/action-form.tsx` is the one shared wrapper. Server
+Actions (Next.js's own alternative mutation mechanism) were considered
+and rejected outright.
+
+**Why:** A Server Action would be a second mutation pathway alongside
+the existing REST-ish API surface, with its own different wire
+protocol — `src/middleware.ts`'s CSRF check (M14, D-090) matches on
+`/api/**` paths specifically, and this whole codebase's integration
+test suite is built on calling route handlers directly
+(`tests/integration/**`); neither would apply to a Server Action
+without separate, parallel work. Every server-side capability check,
+guard, and test this project already has stays exactly as-is and
+exactly as trustworthy — M15 adds zero new server-side code, only a
+UI that calls what already exists exactly the way an external API
+consumer would.
+
+---
+
+### D-102 — 2026-08-31 — The case detail page gates forms by capability + one raw state comparison, never by re-deriving the real guards
+
+**Decision:** `src/app/cases/[id]/page.tsx` decides which action form
+to render using two cheap checks per action: does the viewer's role
+hold the relevant capability (`rolesGrantCapability()`, already the
+single source of truth), and does the case's raw `state` match the
+one value that action is meaningfully reachable from (e.g. `Award
+Grade` only renders when `state === "GRADE_RECOMMENDED"`). It never
+re-implements BR-07 through BR-14's actual guard logic (relevance
+confirmation, duration bounds, deliverables-verified checks, the
+restart gate's G1-G5, etc.).
+
+**Why:** `MASTER_PROMPT.md` §9 states the principle directly: "the UI
+hides what the API forbids — but the API forbidding it is the
+control." Duplicating the real guards in the UI would create a second
+place every future guard change has to be kept in sync with, and any
+drift between the two would either wrongly hide a legitimate action or
+wrongly show one the API will reject anyway — the latter being the
+strictly safer failure mode, since the real route is still the actual
+authority and returns a real, honest error (surfaced verbatim by
+`ActionForm`) if state has moved on since the page loaded. Verified
+directly, not just asserted: a full live walkthrough
+(`docker compose`, D-104) moved one real case through every state from
+`ELIGIBILITY_PENDING` to `CLOSED_PASS`, confirming at each step that
+the *only* forms rendered were the ones actually valid for that role
+and that state — an owning Student, a different Student, Focal, HoD
+and Dean all see correctly different subsets of the same page for the
+same case.
+
+---
+
+### D-103 — 2026-08-31 — A real bug found live-verifying M15: an unreachable SMTP relay 500'd supervisor-token issuance instead of failing cleanly
+
+**Decision:** `POST /api/cases/:id/supervisor-token` now catches a
+`sendMail()` failure specifically and returns `503 {error:
+"mail_unavailable"}`, rather than letting the rejection propagate
+into an unhandled 500. The token `issueSupervisorToken()` already
+committed to the database before the mail attempt is left exactly as
+it was — re-calling the route (safe by the service's own existing
+design: "the same operation either way, since the service always
+revokes any live token first") sends fresh mail without creating a
+second live token. A negative test
+(`tests/integration/M08_supervisor_token_issue.test.ts`) proves both
+halves: the 503 itself, and that a subsequent retry leaves exactly
+one live token behind, not two.
+
+**Why:** Found live-verifying M15's new UI end to end against a
+genuinely unreachable local SMTP relay — not a theoretical edge case,
+the actual first thing that happened the first time this route was
+exercised outside its own mocked test suite. Silently swallowing the
+failure instead (returning `200` as if the email had gone out) would
+have been worse than either the bug or the fix: the Focal Person would
+believe the supervisor had been notified when they hadn't, with no
+signal prompting a retry. This is the same category of finding as
+M14's backup/restore bugs (D-098 through D-100) — a real gap that only
+surfaced by actually running the system against real infrastructure,
+not by reading the code — just smaller in scope; found and fixed in
+the same session as the UI work that exposed it, not left for later.
+
+---
+
+### D-104 — 2026-08-31 — M15's own done-criterion proven with one real case walked start to finish, not per-form spot checks
+
+**Decision:** No new automated end-to-end test suite was added for
+the UI layer itself (this codebase has no React component-testing
+tooling — `vitest.config.ts` runs in a plain Node environment, not
+jsdom, matching the established precedent that M13's own dashboard
+components were never component-tested either, only proven via
+`next build` + live verification). Instead, one real case was walked
+through all eight normal-path steps against a full `docker compose`
+stack — student opens a case, submits a real offer letter, Focal
+approves it, student logs progress and marks the internship complete,
+uploads a completion certificate, Focal issues a supervisor token, a
+real evaluation is submitted against that token, Focal verifies both
+documents and marks the case fully verified, Focal recommends a
+grade, HoD awards it — ending in a real `CLOSED_PASS` case, with
+`GET /api/students/:id/eligibility`'s `isGraduationEligible` (BR-03,
+M14) independently confirmed to flip to `true` as a direct
+consequence, tying M14's and M15's work together in one live proof
+rather than two isolated ones.
+
+**Why:** Every individual route this module's forms call already has
+its own real, tested coverage (M05 through M09's integration tests) —
+what M15 adds is new UI code with no server-side test surface of its
+own to exercise the same way. The genuinely new risk this module
+introduces is entirely about *wiring*: does the right form appear for
+the right role at the right state, does each form's exact request
+shape match what the real route expects, does state moving forward
+correctly change what renders next. A full live walkthrough is the
+one proof that actually exercises all three at once, end to end,
+against the real system — the same standard this project has held
+every other module to (M14's own backup rehearsal, the CSP/CSRF live
+proofs) rather than a lower bar for the UI layer specifically.

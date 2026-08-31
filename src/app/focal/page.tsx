@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
@@ -16,10 +17,10 @@ const columns: ColumnDef<FocalQueueRow, unknown>[] = [
     accessorKey: "studentName",
     header: "Student",
     cell: ({ row }) => (
-      <div>
-        <p className="font-medium">{row.original.studentName}</p>
+      <Link href={`/cases/${row.original.caseId}`} className="block hover:underline">
+        <p className="font-medium text-deep">{row.original.studentName}</p>
         <p className="text-xs text-muted">{row.original.studentEmail}</p>
-      </div>
+      </Link>
     ),
   },
   {

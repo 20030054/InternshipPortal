@@ -42,7 +42,25 @@ export async function POST(
     const appUrl = (process.env.APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
     const evaluationUrl = `${appUrl}/supervisor/evaluate?token=${rawToken}`;
     const { subject, text } = supervisorTokenEmail(evaluationUrl);
-    await sendMail({ to: parsed.data.supervisorEmail, subject, text });
+    try {
+      await sendMail({ to: parsed.data.supervisorEmail, subject, text });
+    } catch {
+      // M15: a real gap found live-verifying the new action-taking UI
+      // against a genuinely unreachable SMTP relay — an unhandled
+      // `sendMail()` rejection here previously 500'd the whole
+      // request with no distinguishable cause, even though
+      // `issueSupervisorToken()` above had already committed a real,
+      // usable token to the database. Silently swallowing this
+      // instead (returning 200 as if the email went out) would be
+      // worse: the Focal Person would believe the supervisor was
+      // notified when they weren't, with nothing prompting a retry.
+      // A clear, distinct status does — and re-calling this route is
+      // always safe (`issueSupervisorToken()`'s own doc comment: "the
+      // same operation either way, since the service always revokes
+      // any live token first"), so the caller can just try again once
+      // the relay is reachable, without creating a second live token.
+      return NextResponse.json({ error: "mail_unavailable" }, { status: 503 });
+    }
 
     return NextResponse.json({
       id: token.id,
