@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Inter, Source_Serif_4 } from "next/font/google";
+import { AppHeader } from "@/components/app-header";
 import "./globals.css";
 
 // Self-hosted via next/font (downloaded at build time, served same-origin)
@@ -40,7 +41,10 @@ export default async function RootLayout({
 
   return (
     <html lang="en" className={`${inter.variable} ${sourceSerif.variable}`}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased">
+        <AppHeader />
+        {children}
+      </body>
     </html>
   );
 }

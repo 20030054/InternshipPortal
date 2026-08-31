@@ -6,7 +6,6 @@ import { getDeanDashboard } from "@/server/dashboards/dean-view";
 import { DepartmentDashboard } from "@/components/department-dashboard";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { WaiversNavLink } from "@/components/staff-nav";
 
 /**
  * §7's M13 summary: "Dean read-only view." Same department picture as
@@ -32,12 +31,9 @@ export default async function DeanDashboardPage() {
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-8 px-6 py-10">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium tracking-wide text-muted">Dean</p>
-          <h1 className="font-serif text-3xl text-deep">Department view</h1>
-        </div>
-        <WaiversNavLink />
+      <div>
+        <p className="text-sm font-medium tracking-wide text-muted">Dean</p>
+        <h1 className="font-serif text-3xl text-deep">Department view</h1>
       </div>
 
       {dashboard.awaitingDean.length > 0 && (

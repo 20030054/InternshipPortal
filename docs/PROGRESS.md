@@ -116,6 +116,56 @@ which office should answer them — not something this codebase can
 answer on its own, but worth having in a form someone can actually
 send.
 
+**Third pass, same session, closing what a fresh full-app audit
+found:** the user asked for a role selector on `/login` plus a full
+pass confirming every component was properly wired and every role's
+frontend properly built. A fresh audit (filesystem + grep, not prior
+notes) turned up three real, previously invisible gaps beyond the
+literal ask: `/reset-password`, `/forgot-password`, and
+`/supervisor/evaluate` had no frontend at all (the real emailed links
+those three flows send 404'd for a real recipient, D-111), and no
+logout mechanism existed anywhere in the UI despite `signOut` being
+fully wired since M02 (D-112). Built: a shared `AppHeader`
+(`src/components/app-header.tsx`, rendered once from the root layout
+so every page gets it for free) with the home-dispatch link, a
+conditional Waivers link and a real logout form; the three missing
+public pages; and the login role selector itself, built strictly
+cosmetic by design — it changes the page's copy only, never what gets
+submitted or where sign-in lands (D-113), which stays 100%
+server-derived from the account's real roles per D-004/§9. One more
+real bug self-caught before shipping: the error banner's first draft
+checked the wrong query param for the specific failure reason
+(D-114).
+
+Proven live, not just build-clean: `tsc`/lint/`next build` all clean,
+the full unit suite green (241/241), then a real container rebuild
+and, against the running stack, all five roles' sign-in verified to
+land on the correct dashboard regardless of which tab was selected in
+the picker (including the adversarial case — "Admin" selected, a real
+Focal account signed in, still lands on `/focal`); a real logout
+verified to clear the session cookie and lock the next request back
+out; the full forgot-password → real email (via a temporary MailHog
+container on the compose network, reverted after) → reset-password →
+old password rejected / new password accepted cycle, end to end; and
+the supervisor-evaluate page's no-token and invalid-token states
+confirmed against the real route (the "live"/"submitted" states rely
+on a case reaching `DOCS_PENDING`, which needs a full multi-role case
+walkthrough out of scope for this pass — covered instead by
+`M08_supervisor_evaluation_flow.test.ts`'s existing, still-passing
+integration coverage plus a direct read confirming the new page's
+fetch/render logic matches that route's response shape field-for-
+field).
+
+One gap surfaced, deliberately left unbuilt: `WITHDRAWN` — §1.2's
+third exception path alongside restart and waiver — has real,
+tested state-machine transitions (M04) but no route or capability
+anywhere calls them; a student cannot actually withdraw a case today.
+Unlike the open questions above, there's no restrictive default to
+apply here — the missing piece is undefined business logic (does it
+need a reason? a confirmation step? a notification?), not a UI layer
+over an already-decided rule, so it stays out of scope rather than
+being guessed at. See `docs/OPEN_QUESTIONS.md` OQ-15 and D-115.
+
 ### M14 — Hardening, backup and handover
 
 Implemented M14 in full per `/docs/modules/M14.md`. The single biggest

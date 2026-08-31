@@ -2375,3 +2375,119 @@ identical "empty optional field" case. No route had an optional
 *number* field until this one; every prior number field
 (`weekNumber`, `performanceRating`, `year`) was required, so nothing
 before this exercised the gap.
+
+---
+
+### D-111 — 2026-08-31 — Three real pages didn't exist: `/forgot-password`, `/reset-password`, `/supervisor/evaluate`
+
+**Decision:** Built all three as public (no-session) pages —
+`src/app/forgot-password/page.tsx`, `src/app/reset-password/page.tsx`,
+`src/app/supervisor/evaluate/page.tsx` — each backed by a client form
+component under `src/components/public/`.
+
+**Why:** Found doing a fresh filesystem audit while responding to the
+user's request for a login role selector, not by re-reading prior
+session notes. `POST /api/auth/password-reset/request`,
+`POST /api/auth/password-reset/confirm`, and `GET`/`POST
+/api/supervisor/evaluate/:token` had all been fully built and tested
+since M02/M08 — but the actual links those routes' own emails point to
+(`passwordResetEmail()`, `staffWelcomeEmail()`,
+`supervisorTokenEmail()`) resolved to nothing: a real user clicking a
+real emailed link got a 404. This had persisted silently through every
+earlier M15 pass because those passes worked route-by-route from the
+authenticated dashboards inward, never from "what does an email
+recipient actually click." `SupervisorEvaluateForm`'s live view is
+deliberately narrow (`studentDisplayName`, `companyName`,
+`plannedStart`, `plannedEnd` only) per §9's supervisor-facing privacy
+rule.
+
+---
+
+### D-112 — 2026-08-31 — Shared `AppHeader` added; no logout button existed anywhere before this
+
+**Decision:** `src/components/app-header.tsx`, a server component
+rendered once from `src/app/layout.tsx` so it appears on every page
+automatically. Renders nothing (`null`) when `getCurrentIdentity()` is
+null. Computes its "Dashboard" link with the same
+`rolesGrantCapability` precedence order `src/app/page.tsx` already
+uses (FOCAL → HOD → DEAN → ADMIN → student home), shows a "Waivers"
+link only when `case.view_any` is held, and hosts the actual logout
+form as an inline server action:
+```
+async function logoutAction() { "use server"; await signOut({ redirectTo: "/login" }); }
+```
+
+**Why:** `signOut` has been fully wired in Auth.js since M02, but
+nothing in the UI ever called it — every role's session, once started,
+had no in-app way to end. Found by grepping for `signOut`/`logout`
+usage across `src/` and getting zero hits outside the auth config
+itself. Replaces the earlier ad hoc `staff-nav.tsx` (deleted), which
+only handled the Waivers link for three of five roles and had no
+logout of its own.
+
+---
+
+### D-113 — 2026-08-31 — Login page's role picker is cosmetic only, by deliberate design
+
+**Decision:** `src/components/public/login-form.tsx` adds a five-way
+role selector (Student / Focal / HoD / Dean / Admin) above the email
+and password fields. Selecting a role changes only the page's own
+copy (`Sign in as {roleLabel}`) — the `<form>` still submits just
+`email` and `password`, to the same `loginAction`, regardless of which
+tab is selected. The tab's state never leaves `LoginForm`'s own
+`useState`; it isn't part of the submitted `FormData` at all.
+
+**Why:** The user asked for a role selector "the same for all," which
+could be read either as "the same form mechanism for every role"
+(what was built) or as the selector actually influencing sign-in.
+D-004 ("nothing else in the codebase is allowed to branch on a role
+name directly") and §9 ("identity comes from the session, never a
+client-supplied role") both rule out the second reading outright —
+`src/app/page.tsx`'s post-login dispatch already decides the landing
+page from the account's real roles, read fresh from the database on
+every request. Verified live: signing in as the seeded Focal account
+with "Admin" selected in the picker still lands on `/focal`, not
+`/admin` (D-004's invariant holds under an adversarial-looking input,
+not just in the common case).
+
+---
+
+### D-114 — 2026-08-31 — Login page's error banner reads `code`, not `error`, for the specific reason
+
+**Decision:** `src/app/login/page.tsx` gates the error banner's
+*visibility* on `error` (Auth.js always sets `error=CredentialsSignin`
+for any credentials failure) but branches its *message* on `code` —
+`AccountLockedError`/`RateLimitedError`'s own overridden `code`
+property (`src/server/auth/authorize-credentials.ts`) surfaces there,
+in a separate query param, not in `error` itself.
+
+**Why:** A first draft checked `error` for `"account_locked"`/
+`"rate_limited"` directly, which can never match — caught before
+shipping by cross-checking against an actual redirect observed live
+earlier this session (`?error=CredentialsSignin&code=credentials`),
+then confirmed against the real running stack for all three
+(`credentials`, `account_locked`, `rate_limited`) after this stretch's
+container rebuild.
+
+---
+
+### D-115 — 2026-08-31 — Withdrawal (§1.2's third exception path) stays out of scope for M15
+
+**Decision:** No UI, route, or capability was added for withdrawal.
+See `docs/OPEN_QUESTIONS.md` OQ-15 for the gap this leaves.
+
+**Why:** The `WITHDRAWN` state and its five `ELIGIBILITY_PENDING`/
+`ELIGIBLE`/`OFFER_SUBMITTED`/`OFFER_UNDER_REVIEW`/`OFFER_REJECTED` →
+`WITHDRAWN` transitions are already defined in
+`src/server/state-machine/transitions.ts` (real, tested state-machine
+rows, `actorRole: "STUDENT"`, `emitsEvent: "CASE_WITHDRAWN"`) — but
+nothing anywhere calls `executeTransition`/`executeSystemTransition`
+to actually reach `WITHDRAWN`; no route exists for a student to
+withdraw a case. Building that route now would mean inventing new
+server-side business logic (what a student is allowed to say when
+withdrawing, whether a reason is required despite `requiresReason:
+false`, what notification if any fires) that no prior module decided
+— outside M15's own established boundary of adding UI for logic that
+already exists, not writing new logic. Confirmed via grep
+(`executeTransition`/`executeSystemTransition` callers, `WITHDRAWN`
+references) before concluding this, not assumed from memory.

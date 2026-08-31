@@ -1,9 +1,25 @@
+import Link from "next/link";
 import { signIn } from "@/server/auth/config";
-import { Button } from "@/components/ui/button";
+import { LoginForm } from "@/components/public/login-form";
 
 // §10's design direction, finally applied — M02's own comment already
 // pointed here: "M13 replaces this with the designed screen."
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; code?: string }>;
+}) {
+  // Auth.js always redirects a failed credentials attempt with
+  // `error=CredentialsSignin` — the *specific* reason lives in `code`,
+  // which is where `AccountLockedError`/`RateLimitedError`'s own
+  // overridden `code` property (`src/server/auth/authorize-
+  // credentials.ts`) actually surfaces. A first draft of this page
+  // checked `error` for those values directly, which never matches —
+  // caught before shipping by re-deriving the exact redirect shape
+  // observed live earlier this session (`?error=CredentialsSignin&
+  // code=credentials`), not by assumption.
+  const { error, code } = await searchParams;
+
   async function loginAction(formData: FormData) {
     "use server";
     await signIn("credentials", {
@@ -19,33 +35,23 @@ export default function LoginPage() {
         <p className="text-sm font-medium tracking-wide text-muted">
           School of Computer &amp; Information Technology · BNU
         </p>
-        <h1 className="mt-1 font-serif text-2xl text-deep">Sign in</h1>
       </div>
-      <form action={loginAction} className="flex flex-col gap-4">
-        <label className="flex flex-col gap-1 text-sm text-ink">
-          Email
-          <input
-            type="email"
-            name="email"
-            required
-            autoComplete="email"
-            className="rounded border border-muted/40 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mid"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm text-ink">
-          Password
-          <input
-            type="password"
-            name="password"
-            required
-            autoComplete="current-password"
-            className="rounded border border-muted/40 px-3 py-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-mid"
-          />
-        </label>
-        <Button type="submit" className="mt-2 w-full">
-          Sign in
-        </Button>
-      </form>
+
+      {error && (
+        <p role="alert" className="text-sm text-danger">
+          {code === "account_locked"
+            ? "This account is temporarily locked after too many failed attempts — try again later."
+            : code === "rate_limited"
+              ? "Too many attempts — please wait a while and try again."
+              : "Incorrect email or password."}
+        </p>
+      )}
+
+      <LoginForm action={loginAction} />
+
+      <Link href="/forgot-password" className="text-sm text-mid underline-offset-2 hover:underline">
+        Forgot password?
+      </Link>
     </main>
   );
 }

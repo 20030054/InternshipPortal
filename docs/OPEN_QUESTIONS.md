@@ -20,6 +20,7 @@ in the code at the point it matters.
 | OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | **Resolved in M11** — see resolution log |
 | OQ-13 | Confirm the total programme length in semesters used for the graduation boundary (G2/BR-17) — currently 8, inferred only from §15's seed-data hint ("students across semesters 3 to 8"), never stated directly. Arose implementing M10. | M10 | Registrar / HoD | Open — restrictive default applied |
 | OQ-14 | Does BNU observe specific public holidays that should pause BR-27's "working days" SLA clock, and what is the weekend (Sat-Sun assumed)? Arose implementing M12. | M12 | HoD / Registrar | Open — restrictive default applied (Sat-Sun weekend only, no holiday calendar) |
+| OQ-15 | What should a student withdrawal actually require (a reason, a confirmation step, a notification) — `MASTER_PROMPT.md` §1.2 names withdrawal as one of three exception paths alongside restart and waiver, but never specifies its mechanics the way BR-XX rules do for the other two. Arose implementing M15. | M04 (schema/state machine), M15 (UI) | Focal Person / HoD | Open — state machine transitions exist (`ELIGIBILITY_PENDING`/`ELIGIBLE`/`OFFER_SUBMITTED`/`OFFER_UNDER_REVIEW`/`OFFER_REJECTED` → `WITHDRAWN`, `actorRole: STUDENT`) but no route or UI calls them; a student cannot actually withdraw a case today |
 
 ## Resolution log
 
@@ -186,3 +187,25 @@ mechanism is dormant, harmlessly, until the Focal Person actually sets
 semester dates, which this module can't answer on its own — but
 answering it later needs no code change, only setting the field on
 each semester going forward.
+
+### OQ-15 — gap surfaced in M15, no default applied (nothing to guess at)
+
+`src/server/state-machine/transitions.ts` already defines five real,
+tested transitions into `WITHDRAWN` (from each pre-approval state,
+`actorRole: "STUDENT"`, `emitsEvent: "CASE_WITHDRAWN"`) — M04's schema
+and state machine treat withdrawal as a first-class exit, same as
+restart and waiver. But unlike restart (M10) and waiver (M11), no
+route was ever built to call `executeTransition` with `WITHDRAWN` as
+the target, and M15's UI audit (built the UI for every *other*
+existing capability, this session) confirmed there's genuinely nothing
+to build a form for yet — no capability, no route, no defined input
+shape. Unlike OQ-01/OQ-02/etc., this isn't a case of applying the most
+restrictive reading of an unanswered question; there's no reasonable
+default to apply, because the answer would be new business logic
+(does withdrawing require a reason despite `requiresReason: false`?
+a confirmation step? a notification to the Focal Person?), not a
+missing UI layer over an already-decided rule. Left unbuilt rather
+than guessed. Whoever answers this can add one route
+(`POST /api/cases/:id/withdraw`, mirroring the shape of
+`src/app/api/cases/:id/restart` or `/waiver`) and one `ActionForm`-
+backed page; the state machine side needs no change.
