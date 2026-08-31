@@ -5,7 +5,7 @@
 complete.
 **Last session:** 2026-08-31
 **Build status:** green. `pnpm lint`, `pnpm exec tsc --noEmit`, `next
-build`, `pnpm test` [241/241], `pnpm test:integration` [358/358] all
+build`, `pnpm test` [241/241], `pnpm test:integration` [360/360] all
 pass, confirmed on multiple consecutive freshly-recreated temp Postgres/
 Redis runs. `pnpm audit` reports zero known vulnerabilities. A full,
 real `docker compose up --build` from a clean volume state (all 7
@@ -82,11 +82,32 @@ retry doesn't leave a duplicate live token behind) rather than left as
 a known gap — the same standard M14's own backup/restore bugs were
 held to (D-103).
 
-**Explicitly not built:** UI forms for the two "exception paths" (§1.2)
-— the restart gate and the waiver path. Both are real, fully tested,
-and reachable via the API/`docs/RUNBOOK.md` today; only their UI is a
-deliberate, documented scope boundary (`docs/modules/M15.md`), kept
-out to keep this addition finishable and honest about what it covers.
+**Second pass, same session, closing everything the first left out:**
+after the first pass shipped and the user found and had fixed three
+more real bugs live (a `/focal`/`/hod`/`/dean`-wide crash from a
+Server Component passing `cell` functions into a Client Component,
+D-105; Admin having no landing page at all, D-106; two more unguarded
+`sendMail()` call sites, D-107), the user asked for the rest of the
+UI outright. Built: the restart gate in full (initiate/counter-sign/
+deny/escalate, on `/cases/:id`), the waiver path in full on a new
+`/waivers` page (initiate — via a new, narrow, non-enumerable
+registration-number lookup route, D-109 — counter-sign, deny, grant),
+grade reversal, document download links and the case summary PDF
+link, and `/admin`'s own extension (roster CSV import, semester
+create/open/close, manual auto-enrollment sweep). One more real bug
+found and fixed building this pass: `ActionForm`'s number-input
+handling had the identical empty-optional-field gap its text-input
+handling was already fixed for, just never exercised until a form
+needed an optional *number* field (D-110).
+
+Proven live, not per-route spot checks: a second real case walked to
+`CLOSED_INCOMPLETE`, restart-requested, denied by HoD, escalated by
+Dean (confirming the ruling form disappears once used); a real waiver
+initiated via the lookup, counter-signed, and granted — confirming
+`isGraduationEligible` flips `true` via the waiver path specifically,
+independent of semester count; grade reversal, document downloads,
+and Admin's roster/semester tools each exercised directly against the
+real running stack.
 
 A ready-to-send questionnaire for BNU (`docs/BNU_QUESTIONNAIRE.md`)
 was also written this session, compiling every item in

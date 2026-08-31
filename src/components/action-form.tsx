@@ -148,6 +148,12 @@ function collectJsonBody(
         body[element.name] = element.checked;
       }
     } else if (element instanceof HTMLInputElement && element.type === "number") {
+      // Same reasoning as the text-field branch below: an empty,
+      // non-required number field (e.g. createSemesterSchema's
+      // optional `sequenceNumber`) is omitted rather than sent as
+      // `NaN`, which `z.number().optional()` rejects outright — `NaN`
+      // is a value, not an absent key.
+      if (element.value === "" && !element.required) continue;
       body[element.name] = element.value === "" ? NaN : Number(element.value);
     } else {
       const value = element.value.trim();

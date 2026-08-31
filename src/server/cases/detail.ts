@@ -30,6 +30,17 @@ export type CaseDetailDocument = {
   verificationMethod: string | null;
 };
 
+export type CaseDetailRestartRequest = {
+  id: string;
+  outcome: "PENDING" | "AUTHORIZED" | "DENIED";
+  newCompanyName: string;
+  focalReason: string;
+  hodReason: string | null;
+  g1Flagged: boolean;
+  alreadyEscalated: boolean;
+  createdAt: Date;
+};
+
 export type CaseDetail = {
   id: string;
   state: CaseState;
@@ -47,7 +58,8 @@ export type CaseDetail = {
   liveSupervisorToken: { supervisorEmail: string; usedAt: Date | null; expiresAt: Date } | null;
   evaluation: { performanceRating: number; comments: string } | null;
   recommendedGradeValue: "P" | "I" | null;
-  grade: { value: "P" | "I" } | null;
+  grade: { id: string; value: "P" | "I" } | null;
+  restartRequests: CaseDetailRestartRequest[];
 };
 
 export async function getCaseDetail(
@@ -84,12 +96,33 @@ export async function getCaseDetail(
         take: 1,
         select: { supervisorEmail: true, usedAt: true, expiresAt: true },
       },
-      grade: { select: { value: true } },
+      grade: { select: { id: true, value: true } },
+      restartRequestsAsFailed: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          outcome: true,
+          focalReason: true,
+          hodReason: true,
+          g1Result: true,
+          createdAt: true,
+          newCompany: { select: { name: true } },
+        },
+      },
     },
   });
   if (!kase) return null;
 
   const evaluation = viewerCanSeeEvaluation ? await getEvaluationForCase(caseId) : null;
+
+  // BR-18: a DENIED request needs a Dean ruling exactly once — see
+  // src/server/dashboards/dean-view.ts's identical query, which this
+  // mirrors rather than duplicates a second interpretation of.
+  const existingEscalations = await prisma.escalation.findMany({
+    where: { subjectType: "RESTART_DENIED", subjectId: caseId },
+    select: { id: true },
+  });
+  const alreadyEscalated = existingEscalations.length > 0;
 
   return {
     id: kase.id,
@@ -118,5 +151,15 @@ export async function getCaseDetail(
       : null,
     recommendedGradeValue: kase.recommendedGradeValue,
     grade: kase.grade,
+    restartRequests: kase.restartRequestsAsFailed.map((r) => ({
+      id: r.id,
+      outcome: r.outcome,
+      newCompanyName: r.newCompany.name,
+      focalReason: r.focalReason,
+      hodReason: r.hodReason,
+      g1Flagged: Boolean((r.g1Result as { flagged?: boolean } | null)?.flagged),
+      alreadyEscalated,
+      createdAt: r.createdAt,
+    })),
   };
 }

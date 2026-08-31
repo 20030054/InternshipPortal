@@ -1,7 +1,15 @@
 import { prisma } from "@/server/db/client";
 import { getHodDashboard, type HodDashboard } from "./hod-view";
 
-export type DeanActionItem = { kind: "waiver" | "restart_escalation"; studentName: string; id: string };
+export type DeanActionItem = {
+  kind: "waiver" | "restart_escalation";
+  studentName: string;
+  id: string;
+  /** M15: only set for `restart_escalation` — the case to link to on
+   * `/cases/:id` for the actual ruling form. Waivers are acted on from
+   * `/waivers` instead, not a specific case screen. */
+  caseId: string | null;
+};
 
 export type DeanDashboard = HodDashboard & {
   /** Cases specifically awaiting the Dean's own action: a waiver at its
@@ -44,6 +52,7 @@ export async function getDeanDashboard(): Promise<DeanDashboard> {
       kind: "waiver" as const,
       studentName: kase.student.user.fullName ?? kase.student.user.email,
       id: waiverIdByStudentId.get(kase.studentId) ?? kase.id,
+      caseId: null,
     })),
     ...deniedRestarts
       .filter((r) => !escalatedCaseIds.has(r.failedCaseId))
@@ -51,6 +60,7 @@ export async function getDeanDashboard(): Promise<DeanDashboard> {
         kind: "restart_escalation" as const,
         studentName: r.failedCase.student.user.fullName ?? r.failedCase.student.user.email,
         id: r.id,
+        caseId: r.failedCaseId,
       })),
   ];
 

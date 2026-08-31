@@ -65,3 +65,11 @@ export async function closeSemester(semesterId: string): Promise<Semester> {
     data: { status: "CLOSED" },
   });
 }
+
+/** M15: `/admin`'s own list — mirrors `GET /api/admin/semesters`'s
+ * query exactly, factored out so the page can call it directly (the
+ * established dashboard convention: a Server Component fetches via a
+ * service function, not by `fetch()`ing its own API). */
+export async function listSemesters(): Promise<Semester[]> {
+  return prisma.semester.findMany({ orderBy: { sequenceNumber: "asc" } });
+}

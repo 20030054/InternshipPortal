@@ -2309,3 +2309,69 @@ send still leaves a fully valid, correctly-roled account behind) and
 `tests/integration/M02_password_reset_flow.test.ts` (a failed send
 still issues a real, redeemable token, and still returns the same
 `200` an attacker gets for a nonexistent email).
+
+---
+
+### D-108 — 2026-08-31 — The rest of the UI: restart gate, waiver path, grade reversal, admin roster/semester management, document downloads
+
+**Decision:** Every remaining route from M05-M11/M14 that had no UI now
+does: restart-request initiate/counter-sign/deny (`src/components/
+case-actions/restart-request-form.tsx`, `restart-requests-panel.tsx`,
+on `/cases/:id`), the Dean's final escalation ruling (same panel),
+grade reversal (`reverse-grade-form.tsx`, also on `/cases/:id`), the
+full waiver path on a new `/waivers` page (initiate via a registration-
+number lookup, HoD counter-sign/deny, Dean grant/deny final), and
+`/admin`'s own extension to cover roster CSV import, semester create/
+open/close, and the manual auto-enrollment sweep trigger. Same
+constraints as the rest of M15: zero new server-side *business* logic
+— only the student-lookup route below is genuinely new — and every
+list with a per-row action (`RestartRequestsPanel`, `WaiversPanel`,
+`SemestersTable`, `AdminUsersTable`) is `"use client"` from its first
+line, built that way from the start rather than found broken later
+(D-105).
+
+**Why:** The user asked directly for the remaining surface, having
+already found and had fixed three real gaps testing the first pass
+(D-105/D-106/D-107) — closing the rest the same way, not leaving a
+second round of "reported broken, then fixed" for restart/waiver/admin
+too. Every one of these routes already had full, real, tested server-
+side coverage since M09-M14; this is UI-only, same as the rest of M15.
+
+---
+
+### D-109 — 2026-08-31 — Waiver initiation resolves a student by registration number, via one new narrow, non-enumerable lookup route
+
+**Decision:** `GET /api/students/lookup?registrationNumber=X`
+(`src/server/students/lookup.ts`), gated by `waiver.initiate`
+specifically (not `case.view_any`/`student.view_any`) — an exact-match
+lookup only, no partial search, no listing.
+
+**Why:** `POST /api/students/:id/waiver` needs the student's internal
+id, which nothing in the UI otherwise exposes — and deliberately so:
+§9 "Privacy" states outright that "there is no student directory in
+this system." A general search/browse endpoint would be exactly that
+directory in a different shape. An exact-match lookup by an identifier
+the Focal Person already has in hand (a registration number, from a
+phone call, an email, a physical file) can't be used to enumerate or
+browse students — it only ever resolves one already-known identity —
+so it doesn't reopen the thing §9 rules out, while still making the
+one legitimate workflow that needs a raw id (initiating a waiver for a
+student who, by definition, usually has no case and so appears on no
+existing screen) actually reachable from the UI.
+
+---
+
+### D-110 — 2026-08-31 — `ActionForm`'s number fields had the same empty-optional bug its text fields were already fixed for
+
+**Decision:** `collectJsonBody()`'s number-input branch now omits an
+empty, non-required field entirely, matching the text-field branch's
+existing behavior, rather than sending `NaN`.
+
+**Why:** Found building `CreateSemesterForm`'s optional
+`sequenceNumber` field — `z.number().int().positive().optional()`
+accepts an absent key but rejects `NaN` outright, and the number
+branch never got the same fix the text branch already had for the
+identical "empty optional field" case. No route had an optional
+*number* field until this one; every prior number field
+(`weekNumber`, `performanceRating`, `year`) was required, so nothing
+before this exercised the gap.

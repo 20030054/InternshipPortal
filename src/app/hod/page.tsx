@@ -4,6 +4,7 @@ import { requireCapability } from "@/server/authz/require-capability";
 import { getHodDashboard } from "@/server/dashboards/hod-view";
 import { DepartmentDashboard } from "@/components/department-dashboard";
 import { Button } from "@/components/ui/button";
+import { WaiversNavLink } from "@/components/staff-nav";
 
 /**
  * §7's M13 summary: "HoD department view: counts by state, overdue
@@ -30,9 +31,12 @@ export default async function HodDashboardPage() {
           <p className="text-sm font-medium tracking-wide text-muted">HoD</p>
           <h1 className="font-serif text-3xl text-deep">Department view</h1>
         </div>
-        <Button asChild variant="secondary">
-          <a href="/api/hod/export">Export to spreadsheet</a>
-        </Button>
+        <div className="flex items-center gap-4">
+          <WaiversNavLink />
+          <Button asChild variant="secondary">
+            <a href="/api/hod/export">Export to spreadsheet</a>
+          </Button>
+        </div>
       </div>
 
       <DepartmentDashboard dashboard={dashboard} />

@@ -16,6 +16,9 @@ import { VerifyDocumentForm } from "@/components/case-actions/verify-document-fo
 import { MarkVerifiedButton } from "@/components/case-actions/mark-verified-button";
 import { RecommendGradeForm } from "@/components/case-actions/recommend-grade-form";
 import { AwardGradeForm } from "@/components/case-actions/award-grade-form";
+import { RestartRequestForm } from "@/components/case-actions/restart-request-form";
+import { RestartRequestsPanel } from "@/components/case-actions/restart-requests-panel";
+import { ReverseGradeForm } from "@/components/case-actions/reverse-grade-form";
 
 /**
  * M15: one screen per case, the thing every dashboard row now links
@@ -83,6 +86,10 @@ export default async function CaseDetailPage({
   const canVerify = rolesGrantCapability(identity.roles, "deliverable.verify");
   const canRecommend = rolesGrantCapability(identity.roles, "grade.recommend");
   const canAward = rolesGrantCapability(identity.roles, "grade.award");
+  const canInitiateRestart = rolesGrantCapability(identity.roles, "restart.initiate");
+  const canCountersignRestart = rolesGrantCapability(identity.roles, "restart.countersign");
+  const canEscalateRestart = rolesGrantCapability(identity.roles, "escalation.rule_restart");
+  const canReverseGrade = rolesGrantCapability(identity.roles, "grade.reverse");
 
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-6 py-10">
@@ -94,6 +101,12 @@ export default async function CaseDetailPage({
         <Badge variant="deep" className="mt-2">
           {detail.state.replaceAll("_", " ")}
         </Badge>
+        <a
+          href={`/api/cases/${id}/summary-pdf`}
+          className="ml-3 text-sm text-mid underline-offset-2 hover:underline"
+        >
+          Download case summary (PDF)
+        </a>
       </div>
 
       <Card>
@@ -119,7 +132,13 @@ export default async function CaseDetailPage({
               {detail.documents.map((doc) => (
                 <li key={doc.id} className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:justify-between">
                   <span>
-                    {doc.type.replaceAll("_", " ")} — {doc.originalFilename}{" "}
+                    {doc.type.replaceAll("_", " ")} —{" "}
+                    <a
+                      href={`/api/documents/${doc.id}/download`}
+                      className="text-mid underline-offset-2 hover:underline"
+                    >
+                      {doc.originalFilename}
+                    </a>{" "}
                     {doc.verified ? (
                       <Badge variant="ok">Verified</Badge>
                     ) : (
@@ -177,6 +196,23 @@ export default async function CaseDetailPage({
       {canAward && detail.state === "GRADE_RECOMMENDED" && (
         <AwardGradeForm caseId={id} recommendedGradeValue={detail.recommendedGradeValue} />
       )}
+
+      {/* The restart gate (§1.2's first exception path) — reachable
+          only from CLOSED_INCOMPLETE (BR-16). */}
+      {canInitiateRestart && detail.state === "CLOSED_INCOMPLETE" && (
+        <RestartRequestForm caseId={id} />
+      )}
+      <RestartRequestsPanel
+        requests={detail.restartRequests}
+        canCountersign={canCountersignRestart}
+        canEscalate={canEscalateRestart}
+      />
+
+      {/* BR-14's correction mechanism — available on any case with an
+          awarded grade, Pass or Incomplete, not state-gated the way
+          everything else on this page is (a reversal can legitimately
+          happen well after a case has closed). */}
+      {canReverseGrade && detail.grade && <ReverseGradeForm gradeId={detail.grade.id} />}
     </main>
   );
 }
