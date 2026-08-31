@@ -1,9 +1,10 @@
 import { prisma } from "@/server/db/client";
 import { computeProgressLine, type ProgressLineResult } from "./progress-line";
 import { computeEligibility, type SemesterFact } from "@/server/roster/eligibility";
+import { isGraduationEligible } from "@/server/roster/graduation";
 
 export type StudentDashboard =
-  | { status: "no_case"; isEligible: boolean }
+  | { status: "no_case"; isEligible: boolean; isGraduationEligible: boolean }
   | {
       status: "has_case";
       caseId: string;
@@ -13,6 +14,7 @@ export type StudentDashboard =
       plannedEnd: Date | null;
       actualStart: Date | null;
       actualEnd: Date | null;
+      isGraduationEligible: boolean;
     };
 
 /**
@@ -23,6 +25,16 @@ export type StudentDashboard =
  * case" on this screen; older ones are history, not the home page.
  */
 export async function getStudentDashboard(studentId: string): Promise<StudentDashboard> {
+  // BR-03/M14: computed fresh, same as everywhere else it's used —
+  // deliberately not tied to whether a case currently exists, since
+  // it's a standing fact ("has this requirement ever been satisfied,
+  // by a pass or a waiver") that a real student had no way to see
+  // anywhere in the UI until now (M15's own live audit, not a design
+  // reading — `isGraduationEligible` had zero callers in any
+  // dashboard view despite being fully computed and tested since
+  // M14).
+  const graduationEligible = await isGraduationEligible(studentId);
+
   const mostRecentCase = await prisma.case.findFirst({
     where: { studentId },
     orderBy: { createdAt: "desc" },
@@ -47,7 +59,11 @@ export async function getStudentDashboard(studentId: string): Promise<StudentDas
       select: { id: true, sequenceNumber: true, status: true },
     });
     const eligibility = computeEligibility(student.admissionSemesterId, semesters);
-    return { status: "no_case", isEligible: eligibility.isEligible };
+    return {
+      status: "no_case",
+      isEligible: eligibility.isEligible,
+      isGraduationEligible: graduationEligible,
+    };
   }
 
   return {
@@ -59,5 +75,6 @@ export async function getStudentDashboard(studentId: string): Promise<StudentDas
     plannedEnd: mostRecentCase.plannedEnd,
     actualStart: mostRecentCase.actualStart,
     actualEnd: mostRecentCase.actualEnd,
+    isGraduationEligible: graduationEligible,
   };
 }

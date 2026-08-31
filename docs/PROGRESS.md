@@ -5,7 +5,7 @@
 complete.
 **Last session:** 2026-08-31
 **Build status:** green. `pnpm lint`, `pnpm exec tsc --noEmit`, `next
-build`, `pnpm test` [241/241], `pnpm test:integration` [360/360] all
+build`, `pnpm test` [242/242], `pnpm test:integration` [370/370] all
 pass, confirmed on multiple consecutive freshly-recreated temp Postgres/
 Redis runs. `pnpm audit` reports zero known vulnerabilities. A full,
 real `docker compose up --build` from a clean volume state (all 7
@@ -186,6 +186,48 @@ can't undo a password already changed through the real product flow).
 Verified live through the real form path this time, not the REST
 endpoint: a wrong password now shows the banner, a correct one still
 signs in and dispatches correctly.
+
+**Fifth pass, same session — "carefully review and address all
+pending or incomplete things, make the system full ready":** a fresh
+audit (not a recap of prior notes) checked: stray `TODO`/`FIXME`
+markers (none beyond the known `TODO(OQ-05)`), `tsc`/lint (clean),
+`pnpm audit` (zero known vulnerabilities), all 7 Docker services
+(healthy), every documented checklist item in `docs/SECURITY_
+CHECKLIST.md`/`docs/RUNBOOK.md` (none unchecked), and every API route
+under `src/app/api` cross-referenced against an actual UI caller. Two
+real, previously-invisible gaps survived that audit:
+
+- `isGraduationEligible` (BR-03, M14) had zero dashboard callers
+  anywhere — a real, tested fact with nowhere in the UI to see it.
+  Fixed: shown on the student's own home page. See D-117.
+- Withdrawal (§1.2's third exception path) — D-115 had deliberately
+  left this out of scope, reading it as needing new business logic
+  M04 never decided. Re-examined here and that reading didn't survive
+  scrutiny: M04's transition table had already answered every open
+  question (no reason required, no extra guards, self-service, no
+  counter-signature) — only a route and a button were missing, the
+  same gap M15 filled everywhere else. Built for real: `case.withdraw`
+  capability, `POST /api/cases/:id/withdraw`, `WithdrawCaseButton` on
+  `/cases/:id`. See D-118 (supersedes D-115) and `docs/OPEN_QUESTIONS.md`
+  OQ-15, updated to reflect this.
+
+Also found, the hard way: this session's own prior integration-test
+run had silently hung indefinitely — `pnpm test:integration` needs a
+real Postgres+Redis reachable at `localhost` with migrations applied
+and the `scit_app` role provisioned (`.github/workflows/ci.yml`'s own
+`db-tests` job shows the exact recipe), which nothing local provides
+by default. Stood up a temporary, disposable Postgres+Redis pair
+matching CI's own setup exactly to actually run it, torn down after.
+Full suite, clean run against a *fresh* database (a first re-run
+against the same, already-populated one produced 134 false failures —
+`(type, year)` unique-constraint collisions from re-inserting fixture
+data with deterministic years the first run had already created, a
+test-environment artifact of not resetting state between runs, not a
+real regression): 370/370 passing, including the two new tests above
+and a full 9-case suite for the new withdraw route
+(`tests/integration/M15_case_withdraw.test.ts`) covering every valid
+source state, cross-student 404, past-approval 409, wrong-capability
+403, and unauthenticated 401.
 
 ### M14 — Hardening, backup and handover
 

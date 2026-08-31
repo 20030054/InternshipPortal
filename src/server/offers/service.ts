@@ -87,6 +87,25 @@ export async function openCase(studentId: string): Promise<Case> {
   return prisma.case.findUniqueOrThrow({ where: { id: created.id } });
 }
 
+/**
+ * §1.2's third exception path (restart, waiver, withdrawal) — the
+ * plainest of the three: no counter-signature, no reason required
+ * (M04's own transition table: `guards: []`, `requiresReason: false`
+ * on all five rows into `WITHDRAWN`). `executeTransition()` itself
+ * already enforces both "only from a pre-approval state" (the
+ * executor picks the one matching row for the case's *current* state,
+ * or throws `IllegalTransitionError`) and "only the owning student"
+ * (`actorRole: STUDENT`, checked against `actor.roles` — case
+ * ownership itself is the route's job, same as every other
+ * student-owned action, e.g. `completeInternship`'s route). Nothing
+ * here decides anything M04 didn't already decide; see D-118.
+ */
+export async function withdrawCase(input: { caseId: string; actor: Actor }): Promise<Case> {
+  const transitionActor = { type: "user" as const, userId: input.actor.userId, roles: input.actor.roles };
+  await executeTransition(input.caseId, "WITHDRAWN", transitionActor, {});
+  return prisma.case.findUniqueOrThrow({ where: { id: input.caseId } });
+}
+
 /** BR-07: handles both the first submission (`ELIGIBLE ->
  * OFFER_SUBMITTED`) and resubmission after rejection (`OFFER_REJECTED ->
  * OFFER_SUBMITTED`) — the executor picks the matching table row from the

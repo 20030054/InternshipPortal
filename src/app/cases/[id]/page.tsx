@@ -19,6 +19,7 @@ import { AwardGradeForm } from "@/components/case-actions/award-grade-form";
 import { RestartRequestForm } from "@/components/case-actions/restart-request-form";
 import { RestartRequestsPanel } from "@/components/case-actions/restart-requests-panel";
 import { ReverseGradeForm } from "@/components/case-actions/reverse-grade-form";
+import { WithdrawCaseButton } from "@/components/case-actions/withdraw-case-button";
 
 /**
  * M15: one screen per case, the thing every dashboard row now links
@@ -165,6 +166,16 @@ export default async function CaseDetailPage({
       {isOwner && (detail.state === "ELIGIBLE" || detail.state === "OFFER_REJECTED") && (
         <SubmitOfferForm caseId={id} />
       )}
+      {/* §1.2's third exception path (D-118) — every state M04's own
+          transition table allows a withdrawal from; not shown once an
+          offer's been approved, matching D-118's own framing of this
+          as the "before commitment" exit. */}
+      {isOwner &&
+        (detail.state === "ELIGIBILITY_PENDING" ||
+          detail.state === "ELIGIBLE" ||
+          detail.state === "OFFER_SUBMITTED" ||
+          detail.state === "OFFER_UNDER_REVIEW" ||
+          detail.state === "OFFER_REJECTED") && <WithdrawCaseButton caseId={id} />}
       {isOwner && detail.state === "IN_PROGRESS" && (
         <>
           <ProgressLogForm caseId={id} />

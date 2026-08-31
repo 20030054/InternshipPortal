@@ -9,6 +9,8 @@ import { approveOffer } from "@/server/offers/service";
 import { assignRole, createUserFixture } from "./support/prisma-fixtures";
 import { executeTransition } from "@/server/state-machine/executor";
 import { prisma } from "@/server/db/client";
+import { createCountersignedWaiver } from "./support/waiver-fixtures";
+import { approveWaiver } from "@/server/waivers/service";
 
 describe("M13: student dashboard (the eight-step progress line's data)", () => {
   it("a student with zero cases and fewer than 4 closed semesters is not eligible", async () => {
@@ -34,14 +36,22 @@ describe("M13: student dashboard (the eight-step progress line's data)", () => {
     const student = await createStudentFixture({ admissionSemesterId: semesters[0]!.id });
 
     const dashboard = await getStudentDashboard(student.id);
-    expect(dashboard).toEqual({ status: "no_case", isEligible: false });
+    expect(dashboard).toEqual({
+      status: "no_case",
+      isEligible: false,
+      isGraduationEligible: false,
+    });
   });
 
   it("a student with zero cases and 4+ closed semesters is eligible", async () => {
     const student = await createEligibleStudent(42010);
 
     const dashboard = await getStudentDashboard(student.id);
-    expect(dashboard).toEqual({ status: "no_case", isEligible: true });
+    expect(dashboard).toEqual({
+      status: "no_case",
+      isEligible: true,
+      isGraduationEligible: false,
+    });
   });
 
   it("a student with a live case renders that case's own progress", async () => {
@@ -110,5 +120,27 @@ describe("M13: student dashboard (the eight-step progress line's data)", () => {
       expect(dashboard.progress.currentStep).toBe(5);
     }
     expect(dashboard.plannedStart).not.toBeNull();
+  });
+
+  // M15: `isGraduationEligible` (BR-03, M14) had no dashboard caller at
+  // all until this pass — see docs/DECISIONS.md D-117. The waiver path
+  // is used here specifically because, unlike a real case-to-
+  // CLOSED_PASS lifecycle, it needs no new semester fixtures (BR-21:
+  // "the only route that skips the eight steps entirely"), so this
+  // stays immune to the exact-semester-count fragility
+  // M14_BR03_graduation_eligibility.test.ts's own file-naming
+  // convention documents in detail.
+  it("surfaces isGraduationEligible: true once a waiver is granted", async () => {
+    const { studentId, waiverId } = await createCountersignedWaiver();
+    const dean = await createUserFixture();
+    await assignRole(dean.id, "DEAN");
+    await approveWaiver({
+      waiverId,
+      actor: { userId: dean.id, roles: ["DEAN"] },
+      reason: "credible and confirmed",
+    });
+
+    const dashboard = await getStudentDashboard(studentId);
+    expect(dashboard.isGraduationEligible).toBe(true);
   });
 });

@@ -2544,3 +2544,82 @@ live: the login rate limit (`checkRateLimit("login:" + clientIp, 10,
 per-account — this session's own repeated verification traffic tripped
 it, correctly, confirming `RateLimitedError`'s banner path also works
 end to end, not just the plain-credentials one.
+
+---
+
+### D-117 — 2026-08-31 — `isGraduationEligible` (BR-03) had zero UI callers; now shown on the student's own home page
+
+**Decision:** `StudentDashboard` (`src/server/dashboards/student-view.ts`)
+gains an `isGraduationEligible: boolean` field on both its `no_case`
+and `has_case` variants, computed once via the existing
+`isGraduationEligible()` (M14) regardless of whether the student
+currently has a case. `src/app/page.tsx` shows a one-line confirmation
+above the existing card when true.
+
+**Why:** Found during a full "make it fully ready" audit requested by
+the user — grepping every caller of `isGraduationEligible()` turned up
+exactly two: its own route (`GET /api/students/:id/eligibility`) and
+its own unit test file. Neither `hod-view.ts` nor `student-view.ts`
+(the two dashboard builders that would plausibly show it) ever called
+it, so a real, tested, BR-03-mandated fact — "has this student
+satisfied the graduation requirement, by a pass or a waiver" — was
+computed correctly on every call and displayed nowhere. Shown
+independent of case status deliberately: a student can be graduation-
+eligible from an older, already-`CLOSED_PASS`/waived case while a
+newer restart case is still in progress, so tying it to "the current
+case's state" would hide the fact exactly when a student who restarted
+most needs reassurance that the earlier pass/waiver still counts.
+
+Verified against a real integration test (not just the type change) —
+`M13_student_dashboard.test.ts`'s two `no_case` assertions updated for
+the new field, plus a new case proving `true` once a waiver is
+granted, deliberately using the waiver path rather than a full
+case-to-`CLOSED_PASS` lifecycle specifically to avoid the exact-CLOSED-
+semester-count fragility `M14_BR03_graduation_eligibility.test.ts`
+documents. Full suite: 361/361.
+
+---
+
+### D-118 — 2026-08-31 — Withdrawal built (supersedes D-115)
+
+**Decision:** `case.withdraw` (`STUDENT` only) is now a real
+capability. `withdrawCase()` (`src/server/offers/service.ts`) calls
+`executeTransition(caseId, "WITHDRAWN", ...)` with no extra fields;
+`POST /api/cases/:id/withdraw` (owner-only, genuine 404 for another
+student's case, same shape as `POST .../complete-internship`) is its
+route; `WithdrawCaseButton` renders on `/cases/:id` for the owning
+student in any of the five states M04's transition table already
+allows it from (`ELIGIBILITY_PENDING`, `ELIGIBLE`, `OFFER_SUBMITTED`,
+`OFFER_UNDER_REVIEW`, `OFFER_REJECTED`), behind a `confirmMessage`
+since it's irreversible.
+
+**Why this reverses D-115:** D-115 read "no route calls the WITHDRAWN
+transitions" as evidence of undecided business logic ("does it need a
+reason? a confirmation step? a notification?") and left it out of
+scope on that basis. Re-examined during this "make it fully ready"
+pass and that reasoning doesn't hold up: M04's transition table had
+already answered every one of those questions the same way it answers
+them for every other transition — `guards: []` (no extra business
+rule beyond "is the case still pre-approval"), `requiresReason: false`
+(no text field needed), `actorRole: STUDENT` (self-service, no
+counter-signature, unlike restart/waiver). The only thing actually
+missing was a route and a button — exactly the situation every other
+M15 pass filled, not a case of this codebase inventing a policy nobody
+decided. `grade.reverse` (D-009/M09) is direct precedent: a capability
+outside `MASTER_PROMPT.md` §3's eighteen rows, added because a real,
+already-decided need surfaced during implementation, not guessed at.
+No notification was added — nothing in `MASTER_PROMPT.md` requires one
+for withdrawal specifically (contrast BR-18's explicit escalation
+notification), and `CASE_WITHDRAWN` already fires as an audit event
+via `executeTransition()`'s own append-only log (BR-26) either way, so
+the fact is never lost even without an email.
+
+Verified live (`tests/integration/M15_case_withdraw.test.ts`, new):
+the owning student can withdraw from each of the five valid states; a
+non-owning student gets 404, not 403; a Focal Person gets 403 (wrong
+capability — students only); an unauthenticated request gets 401; a
+case already past approval (`IN_PROGRESS`) gets 409, not a crash.
+`tests/unit/matrix.test.ts` extended the same way `grade.reverse` was.
+Full suite: 361/361 plus this file's own 9 new cases.
+
+See `docs/OPEN_QUESTIONS.md` OQ-15, updated to reflect this.

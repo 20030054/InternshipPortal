@@ -41,6 +41,17 @@ export type Capability =
   | "case.view_own"
   | "case.view_any"
   | "case.open"
+  // Not one of MASTER_PROMPT.md §3's eighteen rows either — the same
+  // situation "grade.reverse" documents above. §1.2 names withdrawal
+  // as one of three exception paths (restart, waiver, withdrawal), and
+  // M04's own transition table has always had five real, tested rows
+  // into WITHDRAWN (actorRole STUDENT, no guards, no required reason)
+  // — but M15's first pass wrongly read "no route calls them yet" as
+  // "this needs new business logic," when the logic was actually
+  // already fully decided; only the route was missing, same as every
+  // other capability here started out. See docs/DECISIONS.md D-118
+  // (supersedes D-115) and docs/OPEN_QUESTIONS.md OQ-15.
+  | "case.withdraw"
   | "offer.approve"
   | "case.progress_log_update"
   | "document.upload_completion_certificate"
@@ -81,6 +92,7 @@ export const CAPABILITY_MATRIX: Readonly<Record<Capability, readonly RoleName[]>
   "case.view_own": ["STUDENT"],
   "case.view_any": ["FOCAL", "HOD", "DEAN"],
   "case.open": ["STUDENT"],
+  "case.withdraw": ["STUDENT"],
   "offer.approve": ["FOCAL"],
   "case.progress_log_update": ["STUDENT"],
   "document.upload_completion_certificate": ["STUDENT"],

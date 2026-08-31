@@ -56,6 +56,19 @@ export default async function Home() {
         <h1 className="font-serif text-3xl text-deep">Your internship</h1>
       </div>
 
+      {/* BR-03/M14: a real, tested fact ("has the graduation
+          requirement been satisfied, by a pass or a waiver") that had
+          no UI anywhere until this pass found it via a fresh audit —
+          shown here regardless of case status, since it's a standing
+          fact about the student, not something tied to the case
+          currently open (a student can be graduation-eligible from an
+          older case while a newer one is still in progress). */}
+      {dashboard.isGraduationEligible && (
+        <p className="text-sm font-medium text-ink">
+          ✓ You&apos;ve satisfied the internship requirement for graduation.
+        </p>
+      )}
+
       {dashboard.status === "no_case" ? (
         <Card>
           <CardTitle>

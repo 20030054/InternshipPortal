@@ -20,7 +20,7 @@ in the code at the point it matters.
 | OQ-12 | Do the `WAIVER_*` `CaseState` values represent real `cases.state` transitions, or is the waiver workflow entirely independent of any Case row (tracked only via the `waivers` table, as M01 built it)? Arose implementing M04. | M04, M11 | Focal Person / HoD | **Resolved in M11** — see resolution log |
 | OQ-13 | Confirm the total programme length in semesters used for the graduation boundary (G2/BR-17) — currently 8, inferred only from §15's seed-data hint ("students across semesters 3 to 8"), never stated directly. Arose implementing M10. | M10 | Registrar / HoD | Open — restrictive default applied |
 | OQ-14 | Does BNU observe specific public holidays that should pause BR-27's "working days" SLA clock, and what is the weekend (Sat-Sun assumed)? Arose implementing M12. | M12 | HoD / Registrar | Open — restrictive default applied (Sat-Sun weekend only, no holiday calendar) |
-| OQ-15 | What should a student withdrawal actually require (a reason, a confirmation step, a notification) — `MASTER_PROMPT.md` §1.2 names withdrawal as one of three exception paths alongside restart and waiver, but never specifies its mechanics the way BR-XX rules do for the other two. Arose implementing M15. | M04 (schema/state machine), M15 (UI) | Focal Person / HoD | Open — state machine transitions exist (`ELIGIBILITY_PENDING`/`ELIGIBLE`/`OFFER_SUBMITTED`/`OFFER_UNDER_REVIEW`/`OFFER_REJECTED` → `WITHDRAWN`, `actorRole: STUDENT`) but no route or UI calls them; a student cannot actually withdraw a case today |
+| OQ-15 | What should a student withdrawal actually require (a reason, a confirmation step, a notification) — `MASTER_PROMPT.md` §1.2 names withdrawal as one of three exception paths alongside restart and waiver, but never specifies its mechanics the way BR-XX rules do for the other two. Arose implementing M15. | M04 (schema/state machine), M15 (UI) | Focal Person / HoD | **Built in M15** (`case.withdraw`) — see resolution log. The underlying policy question (should it require more than self-service, e.g. a reason or a notification) stays open for a real answer, but is no longer a blocker to using the feature |
 
 ## Resolution log
 
@@ -209,3 +209,20 @@ than guessed. Whoever answers this can add one route
 (`POST /api/cases/:id/withdraw`, mirroring the shape of
 `src/app/api/cases/:id/restart` or `/waiver`) and one `ActionForm`-
 backed page; the state machine side needs no change.
+
+**Update — built in M15, same session (D-118, supersedes D-115):**
+re-examined during a full "make it fully ready" pass and the framing
+above doesn't hold up — every one of the "new business logic"
+questions it raised (a reason? a confirmation step? a notification?)
+was already answered by M04's own transition table (`requiresReason:
+false`, `guards: []`, no notification event beyond the standard audit
+log), exactly as precisely as it answers them for every other
+transition. What was actually missing was mechanical: a route and a
+button, the same gap M15 filled for restart and waiver. Built exactly
+as this entry predicted (`POST /api/cases/:id/withdraw`,
+`WithdrawCaseButton` on `/cases/:id`) — see D-118 for the full
+reasoning and live verification. The genuinely open part — should
+withdrawal require *more* than bare self-service, e.g. a reason or a
+Focal Person notification, as a matter of real BNU policy rather than
+this codebase's own reading — stays open; that's now a UX refinement
+on top of a working feature, not a blocker to having one.

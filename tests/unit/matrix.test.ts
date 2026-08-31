@@ -17,6 +17,9 @@ const EXPECTED: Record<Capability, RoleName[]> = {
   "case.view_own": ["STUDENT"],
   "case.view_any": ["FOCAL", "HOD", "DEAN"],
   "case.open": ["STUDENT"],
+  // Not one of §3's eighteen rows either -- same situation as
+  // "grade.reverse" above. See D-118.
+  "case.withdraw": ["STUDENT"],
   "offer.approve": ["FOCAL"],
   "case.progress_log_update": ["STUDENT"],
   "document.upload_completion_certificate": ["STUDENT"],
