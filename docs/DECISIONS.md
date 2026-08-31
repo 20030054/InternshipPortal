@@ -2250,3 +2250,62 @@ real `app`/`worker` images and confirming all three pages
 (`/focal`, `/hod`, `/dean`) return `200` with no error in
 `docker compose logs app`, for real logged-in sessions of each
 affected role.
+
+---
+
+### D-106 — 2026-08-31 — `/admin`: the landing page Admin never had
+
+**Decision:** A new page, `/admin`, gated by `users.manage` directly
+(not a `dashboard.view_*` capability — there was never a §3 row for
+"who may load the admin screen," same gap M13 found for the other
+three roles). Lists staff accounts (`src/server/dashboards/
+admin-view.ts`) and wraps the two M14 routes
+(`POST /api/admin/users`/`.../deactivate`) in real forms. `src/app/
+page.tsx`'s own role-dispatch now redirects an ADMIN-capable identity
+here instead of falling through to its final `/login` branch.
+
+**Why:** Reported by the user testing the local demo: a successful
+Admin login just bounced back to the login page with no explanation —
+technically correct per M13's own D-082 ("ADMIN-only accounts have no
+dedicated M13 screen"), but indistinguishable from a broken login from
+the outside. `AdminUsersTable`
+(`src/components/admin/admin-users-table.tsx`) is `"use client"` from
+its very first line, deliberately — its `columns` hold `cell`
+functions, and D-105 (immediately above) is exactly what happens when
+that's built server-side and handed to `DataTable` as a prop instead;
+written this way from the start rather than fixed after the fact.
+
+---
+
+### D-107 — 2026-08-31 — Two more `sendMail()` call sites found unguarded, live, the same session D-103 fixed the first one
+
+**Decision:** `createStaffUser()` (`src/server/users/service.ts`) now
+catches a `sendMail()` failure and returns `{..., emailSent: false}`
+instead of throwing — the account itself is already fully created and
+usable at that point (unlike D-103's supervisor-token route, this one
+can't safely be "just called again" for the same email, since a second
+attempt correctly rejects with `EmailAlreadyInUseError`; the real
+recovery path is the account holder using "forgot password," which
+already works for any account with no `passwordHash` — D-091).
+`POST /api/auth/password-reset/request` now also catches a `sendMail()`
+failure, but swallows it silently and still returns `{status: "ok"}` —
+deliberately different from the other two fixes: this route already
+returns an identical `200` whether or not the account exists, on
+purpose (email enumeration), so a *distinguishable* failure response
+here would itself become the same kind of oracle a distinguishable
+success response would be.
+
+**Why:** Found live, testing the `/admin` create-account flow against
+this machine's own unreachable local SMTP relay — the exact same class
+of bug D-103 fixed in the supervisor-token route earlier the same
+session, in two more places `grep -rn "await sendMail("` turned up
+once the pattern was known to look for. `src/server/notifications/
+service.ts`'s `deliver()` was checked too and already handles this
+correctly (catches, marks the `Notification` row `FAILED`) — it was
+the model these two fixes followed. Both fixes come with a negative
+integration test proving the real behavior, not just the absence of a
+throw: `tests/integration/M14_admin_user_management.test.ts` (a failed
+send still leaves a fully valid, correctly-roled account behind) and
+`tests/integration/M02_password_reset_flow.test.ts` (a failed send
+still issues a real, redeemable token, and still returns the same
+`200` an attacker gets for a nonexistent email).

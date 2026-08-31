@@ -108,15 +108,45 @@ export function ActionForm({
   );
 }
 
-function collectJsonBody(form: HTMLFormElement): Record<string, string | number | boolean> {
-  const body: Record<string, string | number | boolean> = {};
+function collectJsonBody(
+  form: HTMLFormElement,
+): Record<string, string | number | boolean | string[]> {
+  const elements = Array.from(form.elements).filter(
+    (el): el is HTMLInputElement =>
+      el instanceof HTMLInputElement && el.type === "checkbox" && el.name !== "",
+  );
+  // A checkbox *group* — more than one checkbox sharing the same
+  // `name`, each with its own explicit `value` (a role, a method,
+  // etc.) — collects into a string array (e.g. createUserSchema's
+  // `roles: z.array(...)`). A single checkbox with that name is the
+  // existing "boolean flag" shape (e.g. `relevanceConfirmed`) instead;
+  // distinguishing the two by count, not by markup, means no extra
+  // prop is needed on `CheckboxField` to say which kind it is.
+  const checkboxNameCounts = new Map<string, number>();
+  for (const el of elements) {
+    checkboxNameCounts.set(el.name, (checkboxNameCounts.get(el.name) ?? 0) + 1);
+  }
+  const groupNames = new Set(
+    [...checkboxNameCounts.entries()].filter(([, count]) => count > 1).map(([name]) => name),
+  );
+
+  const body: Record<string, string | number | boolean | string[]> = {};
   for (const element of Array.from(form.elements)) {
     if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement) && !(element instanceof HTMLSelectElement)) {
       continue;
     }
     if (!element.name) continue;
+
     if (element instanceof HTMLInputElement && element.type === "checkbox") {
-      body[element.name] = element.checked;
+      if (groupNames.has(element.name)) {
+        if (!element.checked) continue;
+        const existing = body[element.name];
+        const group = Array.isArray(existing) ? existing : [];
+        group.push(element.value);
+        body[element.name] = group;
+      } else {
+        body[element.name] = element.checked;
+      }
     } else if (element instanceof HTMLInputElement && element.type === "number") {
       body[element.name] = element.value === "" ? NaN : Number(element.value);
     } else {
@@ -131,6 +161,16 @@ function collectJsonBody(form: HTMLFormElement): Record<string, string | number 
       body[element.name] = value;
     }
   }
+
+  // A group with nothing checked never appears in the loop above at
+  // all (every checkbox in it was skipped as unchecked) — but the
+  // route's own schema (`.min(1)`) needs to see an explicit empty
+  // array to reject it cleanly, not a missing key that reads as
+  // "field omitted."
+  for (const name of groupNames) {
+    if (!(name in body)) body[name] = [];
+  }
+
   return body;
 }
 

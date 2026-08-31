@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sendMail } from "@/server/mail/transport";
 import { prisma } from "@/server/db/client";
 import { authorizeCredentials } from "@/server/auth/authorize-credentials";
 import { POST as createUserRoute } from "@/app/api/admin/users/route";
@@ -62,6 +63,7 @@ describe("M14: admin user management (users.manage)", () => {
     const body = await response.json();
     expect(body.email).toBe(email);
     expect(body.roles).toEqual(["FOCAL"]);
+    expect(body.emailSent).toBe(true);
 
     const user = await prisma.user.findUniqueOrThrow({ where: { email } });
     expect(user.passwordHash).toBeNull();
@@ -101,6 +103,29 @@ describe("M14: admin user management (users.manage)", () => {
       undefined,
     );
     expect(afterResult?.email).toBe(email);
+  });
+
+  it("M15: a real SMTP failure still creates a fully working account — 201 with emailSent: false, not a 500", async () => {
+    await adminSession();
+    const email = `mail-fails-${crypto.randomUUID()}@example.scit.test`;
+
+    vi.mocked(sendMail).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const response = await createUserRoute(jsonRequest({ email, roles: ["FOCAL"] }));
+
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body.emailSent).toBe(false);
+
+    // The account itself is real and fully usable — no half-created
+    // state left behind by the mail failure.
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+    expect(user.passwordHash).toBeNull();
+    expect(user.disabledAt).toBeNull();
+    const roles = await prisma.userRole.findMany({
+      where: { userId: user.id },
+      select: { role: { select: { name: true } } },
+    });
+    expect(roles.map((r) => r.role.name)).toEqual(["FOCAL"]);
   });
 
   it("rejects a duplicate email with 409", async () => {

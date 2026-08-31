@@ -27,6 +27,12 @@ export default async function Home() {
   if (rolesGrantCapability(identity.roles, "dashboard.view_focal")) redirect("/focal");
   if (rolesGrantCapability(identity.roles, "dashboard.view_hod")) redirect("/hod");
   if (rolesGrantCapability(identity.roles, "dashboard.view_dean")) redirect("/dean");
+  // M15: an ADMIN-only account previously fell all the way through to
+  // the final "no dashboard capability at all -> /login" branch below
+  // — a successful login that just bounces back to the login page,
+  // indistinguishable from a login failure. `/admin` (below) is the
+  // real landing page for exactly this account.
+  if (rolesGrantCapability(identity.roles, "users.manage")) redirect("/admin");
   if (!rolesGrantCapability(identity.roles, "dashboard.view_student")) {
     // ADMIN-only accounts have no dedicated M13 screen — see
     // docs/modules/M13.md "Scope decisions."

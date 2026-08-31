@@ -148,13 +148,16 @@ Two things worth knowing day to day:
 
 ## Managing staff accounts
 
-Covered in full, with exact commands, in `docs/RUNBOOK.md` §6-7. In
-short: an Admin creates a Focal/HoD/Dean/Admin account with an email
-and role(s); the new holder gets an email with a one-time link to set
-their own password (same mechanism as "forgot password" — there is no
-temporary password to relay by phone). Deactivating an account takes
-effect immediately, including for a session already open in someone's
-browser.
+An Admin's home screen is `/admin` — a real form, not just the API
+commands in `docs/RUNBOOK.md` §6-7 (still there if you'd rather script
+it). Create a Focal/HoD/Dean/Admin account with an email, full name,
+and one or more roles; the new holder gets an email with a one-time
+link to set their own password (same mechanism as "forgot password" —
+there is no temporary password to relay by phone). If that email
+doesn't arrive, the account still works — "forgot password" on the
+login page sends a fresh link either way. Deactivating an account (a
+button next to their row on the same screen) takes effect immediately,
+including for a session already open in someone's browser.
 
 There is no self-registration, and no route to create a Student
 account this way — students only ever enter the system via roster

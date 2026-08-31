@@ -44,7 +44,20 @@ export async function POST(request: Request) {
     const appUrl = process.env.APP_URL ?? "http://localhost:3000";
     const resetUrl = `${appUrl.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
     const { subject, text } = passwordResetEmail(resetUrl);
-    await sendMail({ to: user.email, subject, text });
+    try {
+      await sendMail({ to: user.email, subject, text });
+    } catch {
+      // M15: a real bug found live (the same class as D-103/the
+      // create-staff-user fix), against a genuinely unreachable SMTP
+      // relay — an unhandled rejection here 500'd the request, which
+      // itself leaks something this route's whole design goes out of
+      // its way to hide: a 500 only ever happens on the branch where
+      // `user` exists, so a distinguishable failure response here is
+      // just as much an email-enumeration oracle as a distinguishable
+      // *success* response would be. The token was already issued and
+      // is still valid — swallowed here rather than surfaced, same as
+      // every other path through this route, on purpose.
+    }
   }
 
   return NextResponse.json({ status: "ok" });

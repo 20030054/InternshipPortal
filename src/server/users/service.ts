@@ -40,7 +40,7 @@ export async function createStaffUser(input: {
   email: string;
   roles: readonly RoleName[];
   fullName?: string;
-}): Promise<{ id: string; email: string; roles: RoleName[] }> {
+}): Promise<{ id: string; email: string; roles: RoleName[]; emailSent: boolean }> {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
     throw new EmailAlreadyInUseError();
@@ -64,9 +64,30 @@ export async function createStaffUser(input: {
   const appUrl = process.env.APP_URL ?? "http://localhost:3000";
   const resetUrl = `${appUrl.replace(/\/$/, "")}/reset-password?token=${rawToken}`;
   const { subject, text } = staffWelcomeEmail(resetUrl);
-  await sendMail({ to: user.email, subject, text });
 
-  return { id: user.id, email: user.email, roles: input.roles.slice() as RoleName[] };
+  // M15: found live-verifying this route the same way D-103 found the
+  // identical bug in the supervisor-token route — an unhandled
+  // `sendMail()` rejection against an unreachable SMTP relay 500'd the
+  // whole request even though the account itself was already fully
+  // created and usable. Unlike D-103's route, this one has no safe
+  // "just call it again" retry (`createStaffUser` rejects a second
+  // call for the same email with `EmailAlreadyInUseError` — the
+  // account, correctly, isn't recreated). The honest response is a
+  // real success, not an error: the account exists and works exactly
+  // as designed, the new holder just needs a fresh link, which the
+  // portal's own "forgot password" flow already gives any account
+  // with no `passwordHash` (verified true in D-091's own reasoning) —
+  // `emailSent: false` tells the caller that's the recovery path
+  // needed here, rather than treating this like a failure that leaves
+  // the account in some unknown state.
+  let emailSent = true;
+  try {
+    await sendMail({ to: user.email, subject, text });
+  } catch {
+    emailSent = false;
+  }
+
+  return { id: user.id, email: user.email, roles: input.roles.slice() as RoleName[], emailSent };
 }
 
 /**

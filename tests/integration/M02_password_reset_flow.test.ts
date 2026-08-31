@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { sendMail } from "@/server/mail/transport";
 import { prisma } from "@/server/db/client";
 import { verifyPassword } from "@/server/auth/password";
 import { createUserFixture } from "./support/prisma-fixtures";
@@ -69,6 +70,22 @@ describe("M02: password reset flow", () => {
     expect(sentEmails.length).toBe(before + 1);
     expect(sentEmails[sentEmails.length - 1]?.to).toBe(user.email);
 
+    const tokenRow = await prisma.passwordResetToken.findFirst({
+      where: { userId: user.id, usedAt: null, revokedAt: null },
+    });
+    expect(tokenRow).not.toBeNull();
+  });
+
+  it("M15: a real SMTP failure still returns 200 — a distinguishable failure here would itself leak whether the account exists", async () => {
+    const user = await createUserFixture();
+
+    vi.mocked(sendMail).mockRejectedValueOnce(new Error("ECONNREFUSED"));
+    const response = await requestReset(user.email);
+
+    expect(response.status).toBe(200);
+
+    // The token was still issued, even though the mail attempt failed —
+    // swallowed at the mail step only, not skipped entirely.
     const tokenRow = await prisma.passwordResetToken.findFirst({
       where: { userId: user.id, usedAt: null, revokedAt: null },
     });
