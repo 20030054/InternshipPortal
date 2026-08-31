@@ -166,6 +166,27 @@ need a reason? a confirmation step? a notification?), not a UI layer
 over an already-decided rule, so it stays out of scope rather than
 being guessed at. See `docs/OPEN_QUESTIONS.md` OQ-15 and D-115.
 
+**Fourth pass, same session, a real live bug report:** the user hit
+"Application error... Digest: 3440847339" signing in as Focal. Traced
+to the server log: a plain uncaught `CredentialsSignin` — `loginAction`
+had called `signIn()` with no `try/catch` since M02, and nothing had
+ever driven a genuinely bad credentials attempt through the real page
+to expose it (the third pass's own error-banner check replayed Auth.js's
+REST callback endpoint directly, which redirects failures itself as
+built-in behavior — materially different from `signIn()` inside a
+custom Server Action, where an uncaught `AuthError` is a real unhandled
+exception). The likely trigger: the third pass's own live verification
+of the forgot/reset-password flow had permanently changed the seeded
+Focal account's password away from the documented demo value. Fixed
+both — `loginAction` now catches `CredentialsSignin` and redirects to
+the existing error banner instead of crashing (D-116) — and restored
+the Focal account's password via a new, kept, `scripts/dev/
+reset-demo-password.ts` (the seed script's own `setDevPasswordIfMissing`
+can't undo a password already changed through the real product flow).
+Verified live through the real form path this time, not the REST
+endpoint: a wrong password now shows the banner, a correct one still
+signs in and dispatches correctly.
+
 ### M14 — Hardening, backup and handover
 
 Implemented M14 in full per `/docs/modules/M14.md`. The single biggest

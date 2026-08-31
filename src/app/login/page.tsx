@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { CredentialsSignin } from "next-auth";
 import { signIn } from "@/server/auth/config";
 import { LoginForm } from "@/components/public/login-form";
 
@@ -22,11 +24,35 @@ export default async function LoginPage({
 
   async function loginAction(formData: FormData) {
     "use server";
-    await signIn("credentials", {
-      email: formData.get("email"),
-      password: formData.get("password"),
-      redirectTo: "/",
-    });
+    try {
+      await signIn("credentials", {
+        email: formData.get("email"),
+        password: formData.get("password"),
+        redirectTo: "/",
+      });
+    } catch (err) {
+      // A bad login previously crashed the whole page instead of
+      // showing this page's own error banner — `signIn()` throws a
+      // real `CredentialsSignin` (or one of `AccountLockedError`/
+      // `RateLimitedError`, both `CredentialsSignin` subclasses,
+      // `authorize-credentials.ts`) on any failed attempt, and with
+      // nothing here to catch it, Next.js's server-action machinery
+      // surfaced it as an unhandled server-side exception. Found
+      // live: the earlier verification of this banner only replayed
+      // Auth.js's own REST callback endpoint directly, which redirects
+      // failures itself — it never actually drove a bad attempt
+      // through this real form. Narrowed to `CredentialsSignin`
+      // specifically (not the broader `AuthError`) because `.code` is
+      // only declared there, and credentials is the only provider
+      // this app has. `signIn()`'s own success path also throws
+      // (Next's internal redirect signal), so anything that isn't a
+      // `CredentialsSignin` — including that signal — is rethrown
+      // untouched.
+      if (err instanceof CredentialsSignin) {
+        redirect(`/login?error=CredentialsSignin&code=${err.code}`);
+      }
+      throw err;
+    }
   }
 
   return (

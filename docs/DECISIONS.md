@@ -2491,3 +2491,56 @@ false`, what notification if any fires) that no prior module decided
 already exists, not writing new logic. Confirmed via grep
 (`executeTransition`/`executeSystemTransition` callers, `WITHDRAWN`
 references) before concluding this, not assumed from memory.
+
+---
+
+### D-116 — 2026-08-31 — Any failed login crashed the whole page; `loginAction` now catches `CredentialsSignin`
+
+**Decision:** `src/app/login/page.tsx`'s `loginAction` wraps its
+`signIn("credentials", ...)` call in a `try/catch`, catching
+`CredentialsSignin` specifically (not the broader `AuthError` — `.code`
+is only declared on `CredentialsSignin` itself) and manually
+redirecting to `/login?error=CredentialsSignin&code=${err.code}`;
+anything else — critically including `signIn()`'s own internal
+redirect signal on a *successful* attempt — is rethrown untouched.
+
+**Why:** A live report from the user ("Application error: a
+server-side exception has occurred... Digest: 3440847339") traced
+straight to the server log: a plain, uncaught `CredentialsSignin`
+thrown by `signIn()`. This bug predates M15 entirely — `git show` on
+the pre-M15 `login/page.tsx` (M02) shows the exact same bare
+`await signIn(...)` with no error handling, so it shipped from M02
+onward and was never actually caught, because nothing before this
+drove a genuinely bad credentials attempt through the real page —
+D-114's own verification, from the previous entry, tested the error
+banner by replaying Auth.js's REST callback endpoint directly
+(`/api/auth/callback/credentials`), which *does* redirect failures
+itself as built-in framework behavior — a materially different code
+path from calling `signIn()` inside a custom Server Action, where that
+convenience doesn't apply and an uncaught `AuthError` propagates as a
+genuine unhandled exception. The proximate trigger for the user's
+specific report was almost certainly D-111 through D-115's own live
+verification: the real forgot/reset-password cycle was exercised
+against the seeded Focal demo account, which permanently changed its
+password away from the documented `dev-password-not-for-prod` — so
+the documented demo credentials (`scripts/dev/local-demo.sh`'s own
+printed line) genuinely stopped working and hit exactly this path.
+Fixed both: this catch (so any future bad attempt, for any reason,
+shows the banner instead of crashing) and restored the Focal account's
+password to the documented value via a new one-off,
+`scripts/dev/reset-demo-password.ts`, which reuses the same
+`hashPassword` the seed script's own `setDevPasswordIfMissing` uses —
+kept in the repo since `setDevPasswordIfMissing`'s own "only if
+missing" guard means re-running `pnpm seed` can't undo a password
+already changed through the real product flow, and this is now the
+second time that's mattered.
+
+Verified live, through the real form (not the REST endpoint): a wrong
+password now redirects to the banner (`Incorrect email or password.`)
+instead of crashing; a correct one still signs in and dispatches to
+`/focal` as before. Also surfaced, incidentally, while diagnosing this
+live: the login rate limit (`checkRateLimit("login:" + clientIp, 10,
+15 * 60)`, `authorize-credentials.ts`) is scoped per-IP, not
+per-account — this session's own repeated verification traffic tripped
+it, correctly, confirming `RateLimitedError`'s banner path also works
+end to end, not just the plain-credentials one.
