@@ -1,3 +1,5 @@
+"use client";
+
 import Link from "next/link";
 import type { ColumnDef } from "@tanstack/react-table";
 import type {

@@ -2204,3 +2204,49 @@ one proof that actually exercises all three at once, end to end,
 against the real system — the same standard this project has held
 every other module to (M14's own backup rehearsal, the CSP/CSRF live
 proofs) rather than a lower bar for the UI layer specifically.
+
+---
+
+### D-105 — 2026-08-31 — A real, latent production-breaking bug on every dashboard with a table: `columns` (with `cell` functions) built server-side, passed as a prop into a Client Component
+
+**Decision:** `src/components/department-dashboard.tsx` (shared by
+`/hod` and `/dean`) is now itself marked `"use client"`. `/focal`'s
+table was extracted into a new `src/components/focal-queue-table.tsx`
+(also `"use client"`) that builds its own `columns` internally; the
+page itself now passes only plain, fully serializable data
+(`FocalQueueRow[]`) as a prop, never a function.
+
+**Why:** Reported live by the user, the first time anyone actually
+loaded `/focal` in a real browser since this session's M15 work
+touched both files — "Application error: a server-side exception has
+occurred," with `docker compose logs app` showing the real cause
+underneath: "Functions cannot be passed directly to Client Components
+unless you explicitly expose it by marking it with 'use server'."
+Both `/focal`'s own inline `columns` array and `department-dashboard
+.tsx`'s several `columns` arrays hold `cell: ({row}) => <JSX/>`
+function values; both files are Server Components (M13's original
+shape, unmarked), and both pass their `columns` array as a prop into
+`DataTable` (`"use client"`, M13) — React Server Components can
+serialize a *returned* JSX tree across that boundary, but not an
+arbitrary function value sitting inside a plain prop object, so every
+single request to either page threw, unconditionally, regardless of
+data.
+
+This was latent since M13, not introduced by M15 — M15 only *edited*
+both files (adding the `/cases/:id` link to each table's student
+cell), it didn't create the underlying pattern. It went uncaught
+through M13's own "live-verified against real data" claim and this
+session's own M14/M15 `docker compose` verification passes because
+neither ever actually loaded `/focal`, `/hod`, or `/dean` as rendered
+pages — M14's verification focused on headers/CSRF/auth/backup; M15's
+focused heavily and correctly on the *new* `/cases/:id` page (which
+has no equivalent bug — its action-form components receive only plain
+string props, never functions) and never circled back to re-check the
+pre-existing pages it had just edited. A real, honest gap in this
+session's own verification coverage, not a tooling limitation —
+`curl`-ing the page and checking for `"Application error"` would have
+caught this immediately, and does now: verified live, rebuilding the
+real `app`/`worker` images and confirming all three pages
+(`/focal`, `/hod`, `/dean`) return `200` with no error in
+`docker compose logs app`, for real logged-in sessions of each
+affected role.
