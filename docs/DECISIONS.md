@@ -1668,3 +1668,420 @@ higher block (hundreds of millions, still comfortably under Postgres
 `INTEGER`'s ~2.1 billion ceiling) rather than a narrower "below X"
 window that would need re-deriving again for the next module that hits
 this.
+
+---
+
+### D-088 — 2026-08-31 — BR-03 and BR-05 had no implementation anywhere, not just no test
+
+**Decision:** Auditing every `BR-XX_*.test.ts` file against §4's full
+BR-01 to BR-28 list (M14's own done-criterion: "every BR has a passing
+named test") found two rules with zero code behind them in any of the
+13 modules already marked complete. Both are fixed for real this
+module, not just test-stubbed:
+
+- **BR-03** ("no graduation-eligible mark without a `CLOSED_PASS` case
+  or an approved waiver") — `isGraduationEligible()`
+  (`src/server/roster/graduation.ts`), surfaced as an additive field on
+  the existing `GET /api/students/:id/eligibility` route.
+- **BR-05** ("cases missing deliverables at the semester's document
+  deadline are flagged, not auto-failed") — `findDeadlineMissedCases()`
+  (`src/server/roster/deadline-sweep.ts`), surfaced on the HoD
+  dashboard and via a new daily BullMQ sweep
+  (`src/server/jobs/queue.ts`'s `getDeadlineSweepQueue()`,
+  `worker/index.ts`'s `deadlineSweepWorker`) that emails every `FOCAL`
+  user once per newly-missed case via M12's existing notification
+  registry (`DEADLINE_MISSED_TEMPLATE`).
+
+**Why:** `semesters.document_deadline` has existed in the schema since
+M01 with a doc comment naming M07/M09 as the module that would build
+the sweep — neither did, and no later module caught it either. This is
+the same category of finding as prior modules' self-audits (e.g. M13's
+overdue-eligibility dashboard section), just larger in consequence
+because it's two entire business rules with no code path at all, not a
+missing edge case in an existing one. Both fixes follow the codebase's
+own established "computed at query time, never stored, never
+auto-acted-on" pattern (BR-01, BR-04, BR-27) rather than inventing a
+new shape: no `graduationEligible` column, no automatic transition to
+`CLOSED_INCOMPLETE` on a missed deadline — `findDeadlineMissedCases()`
+never calls `executeTransition()`, so "flagged, not auto-failed" holds
+by construction, not by convention.
+
+---
+
+### D-089 — 2026-08-31 — Next.js reads its own CSP nonce back out of the *incoming request's* CSP header, not a custom header
+
+**Decision:** `src/middleware.ts` sets the `Content-Security-Policy`
+header on both the outgoing request (`NextResponse.next({request:
+{headers}})`) and the response. Both are required; setting it only on
+the response compiles and looks correct but ships zero nonces on any
+script tag.
+
+**Why:** A first draft set a custom `x-nonce` request header and the
+CSP only on the response — this builds and serves without error, and
+the CSP header itself correctly contains `'nonce-XXX'`, but grepping
+the actual rendered HTML showed no `nonce="..."` attribute anywhere.
+With `'strict-dynamic'` in `script-src`, a real browser would have
+blocked every script on the page, including Next's own required inline
+RSC-hydration scripts — a completely non-interactive app that would
+have looked fine in every automated check that doesn't inspect
+rendered output. Root-caused by reading Next's own source
+(`get-script-nonce-from-header.js`, `app-render.js`'s
+`parseRequestHeaders()`): Next parses its per-request nonce out of the
+literal `content-security-policy` value on the incoming request's own
+headers, not any custom header a middleware author might reach for
+first. Nonce-based CSP additionally requires the page to be dynamically
+rendered (a statically prerendered page's nonce would be baked in at
+build time and could never match a fresh per-request value) — achieved
+by `src/app/layout.tsx` calling `await headers()`. Verified empirically
+by building, serving via `next start` on a clean port, and grepping the
+actual HTML for matching nonces on every script tag, external and
+inline — not just trusting that the header and the config compiled.
+
+---
+
+### D-090 — 2026-08-31 — CSRF via Origin/Referer validation, not per-form tokens
+
+**Decision:** `src/server/security/csrf.ts`'s `isOriginAllowed()`
+(wired into `src/middleware.ts`) rejects any mutating (`POST`/`PUT`/
+`PATCH`/`DELETE`) `/api/**` request whose `Origin` header (or, absent
+that, the origin parsed from `Referer`) doesn't match the configured
+app origin exactly. `/api/auth/**` (Auth.js's own sign-in flow, which
+has its own CSRF protection) and `/api/supervisor/**` (token-
+authenticated, not cookie-authenticated — see M08) are excluded.
+Fails closed: a request with neither header present is rejected, not
+allowed through.
+
+**Why:** A double-submit-cookie or synchronizer-token scheme is the
+more traditional defense, but this app is a same-origin, cookie-session
+API with no cross-origin fetch surface by design (§6.3: no CDN, no
+client-side-only authorization) — Origin/Referer validation is the
+standard modern defense for exactly this shape of application and
+needs no per-form token plumbing retrofitted through the ~50 existing
+mutating routes. The pure validation logic lives outside
+`middleware.ts` specifically so it can be unit-tested directly
+(`tests/unit/csrf.test.ts`, 13 cases) — the established route-handler-
+direct-call integration test pattern in this codebase can never
+exercise `middleware.ts` itself, since it calls route handlers
+in-process, bypassing Next's middleware layer entirely.
+
+---
+
+### D-091 — 2026-08-31 — Session cookie `secure` stays unset, not hardcoded `true`
+
+**Decision:** `src/server/auth/config.ts`'s new explicit
+`cookies.sessionToken.options` sets `httpOnly: true, sameSite: "lax",
+path: "/"` — deliberately omitting `secure`.
+
+**Why:** §9 names "HttpOnly, Secure, SameSite=Lax cookies" as an
+acceptance criterion, but Auth.js v5 already sets `secure` dynamically
+per-request based on whether the request looks HTTPS (true in every
+real deployment, where Caddy terminates TLS in front of `app`).
+Hardcoding `secure: true` here would break `next dev` against plain
+HTTP with no way to log in at all — a browser silently refuses to send
+a `Secure` cookie over HTTP, so every login attempt would appear to
+fail with no visible error pointing at the cause. Left to Auth.js's own
+correct-per-environment default rather than a hardcoded value that
+only looks more explicit.
+
+---
+
+### D-092 — 2026-08-31 — Backup restore preserves ownership and grants; not `--no-owner --no-privileges`
+
+**Decision:** `docker/backup/restore.sh`'s `pg_restore` call uses
+`--clean --if-exists` only — no `--no-owner`/`--no-privileges`.
+
+**Why:** A target database restored into is always created "the normal
+way" (a fresh `docker compose up`, which bootstraps the same
+`scit_migrator`/`scit_app` role names via Postgres's own init as any
+other deployment, per `docker-compose.yml`/`prisma/`), so the dump's
+own ownership and `GRANT`/`REVOKE` statements already reference role
+names that exist on the target. Restoring them as-is makes the restore
+a genuine single-step, exact reproduction — BR-26's append-only
+revokes on `scit_app` included — rather than a partial restore that
+silently depends on a separate `prisma migrate deploy` run afterward
+just to reapply privileges the dump already had. `backup.sh` itself
+runs `pg_dump` as `DATABASE_MIGRATION_ROLE` (not the restricted
+`scit_app` role) specifically so the dump is complete enough for this
+to work — a dump taken as `scit_app` might not even have visibility
+into every grant it would need to reproduce.
+
+---
+
+### D-093 — 2026-08-31 — HSTS `preload` omitted; a decision, not an open question
+
+**Decision:** The Caddyfile's `Strict-Transport-Security` header ships
+`max-age=31536000; includeSubDomains` without `preload`.
+
+**Why:** Submission to browsers' built-in HSTS preload list is a
+one-way, hard-to-reverse operational step — removal from the list, once
+submitted, takes months to propagate to shipped browsers — that
+shouldn't be taken as a side effect of choosing a header default. This
+isn't gated on any unanswered question from BNU (unlike OQ-01 through
+OQ-14): the header's own `max-age`/`includeSubDomains` already deliver
+the real protection (a browser that has seen the site once won't
+downgrade it to plain HTTP again), and `preload` only matters for a
+first-ever visit, which is a deliberate, separate step an operator can
+take later via https://hstspreload.org once the domain is stable — not
+something this codebase should decide unilaterally.
+
+---
+
+### D-094 — 2026-08-31 — BR-03/BR-05's own integration test files run dead last, by filename, not at their alphabetical BR position
+
+**Decision:** `tests/integration/M14_BR03_graduation_eligibility.test.ts`
+and `tests/integration/M14_BR05_deadline_missed.test.ts` are named
+`M14_BR0x_...`, not `BR0x_...` — deliberately sorting after every
+other module's test file (`"M14" > every "BR"/"M0x"/"M1x" prefix`) and
+before the lowercase `extra_constraints`/`schema`/`seed` sanity files.
+
+**Why:** A real bug, hit twice while building this module, in the
+established "each file reserves a disjoint `sequenceNumber` block"
+convention (D-035/D-046/D-047/D-087). `computeEligibility()` counts
+*every* CLOSED semester in the shared test database at or above a
+student's admission point, with no other scoping — so any new CLOSED
+semester a test file creates pollutes *every other* test's own
+eligibility/G2 math for a lower admission point, provided that other
+test runs *after* the polluting one (`fileParallelism: false`, filename
+order). A low block (this file's first draft used 42000) collided
+outright with an existing file's own block
+(`M13_student_dashboard.test.ts`'s 42010/42020). Moving to a high
+block (800,000,000, following D-087's own fix for a *different*
+instance of this bug) didn't help — it *is* still >= every lower
+admission point used by files that run afterward, so it broke
+`M03_eligibility_route_ownership.test.ts`'s exact-count assertion and
+several BR16-BR20/BR17-19/M13_dean_dashboard restart-guard outcomes
+instead. D-087's fix worked for *its* case only because the polluting
+file's own student, not anyone else's, needed protecting *from*
+pollution below it — the reverse direction (protecting everyone else
+*from* this file) needs the opposite move: running after everything
+that computes eligibility, so nothing exists downstream to corrupt.
+No numeric block, however large, substitutes for that; see the two
+files' own doc comments for the full trace.
+
+---
+
+### D-095 — 2026-08-31 — Notification delivery uses bounded concurrency (`mapWithConcurrency`, limit 5), not sequential or unbounded `Promise.all`
+
+**Decision:** `sendNotification()` (`src/server/notifications/service.ts`)
+and `runDeadlineSweep()`'s per-case loop both now use a small hand-
+written `mapWithConcurrency(items, limit, fn)` helper (limit 5) instead
+of a plain `for`-`await` loop or a bare `Promise.all`.
+
+**Why:** Two real failure modes found building M14_BR05's own sweep
+test, which — run at the tail of the whole shared-database suite
+(D-094) — genuinely resolves to over 100 simultaneous `FOCAL`
+recipients across more than 150 accumulated pre-verification cases.
+First: a fully sequential `for`-`await` loop (`sendNotification`'s
+original shape, unchanged since M12) took the single test past a
+180-second timeout with no sign of finishing — a genuine scaling
+problem in the notification path itself, not just a slow test, since a
+real deployment recovering from a lapsed sweep (e.g. after downtime)
+would hit the same product-of-cases-and-recipients cost. Second: the
+first fix attempt (bare `Promise.all` over every recipient, and
+separately over every case) made the test fail differently —
+`PrismaClientKnownRequestError: Timed out fetching a new connection
+from the connection pool` — and, worse, that failure wasn't contained
+to this one test: a request still queued on the pool when its own
+test's timeout fires keeps running in the background, and several
+*earlier-running, unrelated* waiver tests
+(`BR21_BR22_waiver_initiate.test.ts`, `BR23_one_waiver_per_student
+.test.ts`, `M13_dean_dashboard.test.ts`, others) started failing with
+the identical pool-timeout error purely from competing with those
+orphaned requests for the same default 9-connection pool. Bounding
+concurrency at a small fixed number avoids ever asking the pool for
+more connections than a typical default provides, regardless of what
+`DATABASE_URL` configures in a given environment, while still cutting
+the fully-sequential worst case from minutes to well under this
+suite's default 20-second test timeout in nearly every case (the one
+exception — `M14_BR05`'s own two-full-sweep test — keeps an explicit
+120-second timeout with a doc comment explaining why: it deliberately
+proves the sweep against the suite's *entire* accumulated history, far
+more simultaneous cases/recipients than any real SCIT deployment would
+ever produce at once).
+
+---
+
+### D-096 — 2026-08-31 — All 7 `pnpm audit` findings fixed directly; none accepted as unactionable
+
+**Decision:** `nodemailer` (a direct dependency) bumped `8.0.11` ->
+`9.0.6`, the one HIGH finding in our own code's actual dependency, not
+just a transitive one. A new `pnpm.overrides` block in `package.json`
+forces three transitively-vulnerable packages up to their patched
+version regardless of what their parent package (`next`, `prisma`,
+`exceljs`) itself currently pins: `postcss` -> `8.5.26` (already our
+own direct devDependency version — this just makes Next's *internal*
+bundled copy resolve to the same patched version instead of its own
+older `8.4.31`), `deepmerge-ts` -> `8.0.2` (Prisma's CLI config
+loader), `uuid` -> `11.1.1`, the minimum version satisfying the
+advisory's "patched: >=11.1.1" rather than jumping to the newest
+major (`14.x`) — deliberately conservative, since `exceljs` (the only
+consumer, via `uuid@8.3.2`) uses a CommonJS `require` pattern that a
+smaller version jump is less likely to break than a six-major jump.
+`pnpm audit` reports zero known vulnerabilities after these changes.
+
+**Why:** §9's checklist names a dependency audit explicitly, and this
+codebase's own standing practice (D-006: exact-pinned versions,
+upgrades are "a deliberate, reviewed action," never silently absorbed)
+means the right response to a real finding is to actually fix it, not
+just log it as accepted risk, when a fix is available and verifiable.
+All three overridden packages are either build-time-only (`postcss`,
+`deepmerge-ts` — never shipped in the runtime request path) or used
+narrowly enough (`uuid`, only inside `exceljs`'s XLSX generation) that
+the upgrade risk is low and directly checkable against this codebase's
+own real test suite, rather than a library whose exact behavior in
+production is unverifiable from here. `nodemailer`'s bump does trigger
+an unmet-peer-dependency warning from `next-auth`/`@auth/core` (both
+still declare `^7.0.7 || ^8.0.5`) — harmless in practice, since this
+codebase never imports `next-auth`'s own `Email` provider (D-015:
+Credentials only) and `@auth/core` only requires `nodemailer` lazily
+inside that unused provider module, but the warning is real and worth
+naming rather than pretending it isn't there. Verified, not just
+asserted: `pnpm exec tsc --noEmit`, `pnpm lint`, `pnpm test`, a full
+`pnpm build` (exercising the `postcss` override through Next's real
+build pipeline), `pnpm exec prisma generate` (exercising the
+`deepmerge-ts` override through Prisma's real CLI), and two full fresh
+`pnpm test:integration` runs (346/346, exercising the `uuid` override
+through `M13_exports.test.ts`'s real XLSX generation, and `nodemailer`
+transitively through every mocked-`sendMail` notification path) all
+pass identically to before the bump.
+
+---
+
+### D-097 — 2026-08-31 — A third real gap: `users.manage` existed since M02, but no route ever let an Admin create or deactivate a user
+
+**Decision:** Two new routes, `POST /api/admin/users`
+(`src/app/api/admin/users/route.ts`) and
+`POST /api/admin/users/:id/deactivate`, plus
+`src/server/users/service.ts`'s `createStaffUser()`/`deactivateUser()`.
+Deliberately scoped to the four staff roles (`FOCAL`/`HOD`/`DEAN`/
+`ADMIN`) — `STUDENT` is rejected by the request schema — since roster
+import (M03) is the dedicated, more complete student-creation path
+(it also creates the linked `Student` row this generic route has no
+way to populate). A new account is created with no `passwordHash`
+(`authorizeCredentials()`, M02, already treats that exactly like a
+wrong password) and immediately issued a password-reset-shaped
+onboarding link via the existing `issuePasswordResetToken()`/redeem
+mechanism — no new token machinery. Deactivation sets `disabledAt`,
+already the sole mechanism both `authorizeCredentials()` and
+`loadIdentity()` (read fresh on every request) check.
+
+**Why:** Found auditing for this module's own §8.3 requirement — the
+runbook must cover "onboarding a new Focal Person" — and discovering
+there was, genuinely, no way to do that: `users.manage`
+(`src/server/authz/matrix.ts`) has existed since M02 and already gates
+roster import and semester admin routes, and §2.6/§3 both explicitly
+name "create and deactivate user accounts" as one of Admin's own
+listed capabilities (a ✓ in §3's authority matrix), but no module
+through M13 ever built the route for it — only `prisma/seed.ts`'s
+dev-only fixtures created a staff account. This is the same category
+of finding as BR-03/BR-05 (D-088): a capability that looked complete
+(matrix entry, gating already wired into other routes) but had no
+actual implementation behind the one thing its own name promised. Not
+audit-logged to `audit_events`, matching the established precedent
+already set by roster import and semester open/close (neither of
+those routes writes an audit row either) — audit logging in this
+codebase is reserved for case-lifecycle actions (`executeTransition()`
+and its callers), not admin/roster operations; extending that
+convention is a separate decision for whoever owns it next, not one
+this module makes unilaterally mid-fix.
+
+---
+
+### D-098 — 2026-08-31 — Real, full `docker compose up --build` verification found the backup mechanism had never once produced a working dump
+
+**Decision:** `docker/backup/Dockerfile` now creates `/backups` and
+`chown`s it to the `postgres` user before the image switches to that
+user (`RUN mkdir -p /backups && chown postgres:postgres /backups`).
+`docker-compose.yml`'s `backup` healthcheck now checks for an actual
+recent `*.dump` file (`find /backups -name 'scit_*.dump' -mmin -70`)
+instead of a heartbeat file `backup.sh` used to touch unconditionally
+every cycle; the heartbeat and its `touch` are removed entirely.
+
+**Why:** Found only by doing the thing M14's own done-criterion
+requires — a real, full `docker compose up --build` from clean
+volumes, not just `docker compose config --quiet` (CI's own check) or
+trusting that the script typechecks/shellchecks. `scit_backups` is a
+fresh named Docker volume; Docker initializes a fresh named volume
+owned by root unless the image already has content at that mount
+point to copy ownership from, and this image never created `/backups`
+at all before this fix — every single scheduled `pg_dump` attempt
+failed with `Permission denied`, from the container's very first
+start, with the sidecar's own log recording `dump_once failed this
+cycle` every hour. This was completely invisible in `docker compose
+ps`: the previous healthcheck only proved the loop process hadn't
+crashed (`touch /tmp/healthy` ran unconditionally, after both
+`dump_once` and `prune_old`, regardless of whether either succeeded),
+so the service reported `healthy` the entire time. A backup mechanism
+that looks healthy while never producing a single usable dump is worse
+than an obviously-broken one — the new healthcheck verifies the one
+fact an operator actually needs to know.
+
+---
+
+### D-099 — 2026-08-31 — `pg_dump`/`pg_restore`/`psql` reject Prisma's own `?schema=public` query parameter; both scripts now strip it
+
+**Decision:** `backup.sh` and `restore.sh` both derive a
+libpq-compatible connection string (`PG_DUMP_URL`/`TARGET_URL`) by
+stripping everything from the first `?` onward off whatever connection
+string they're given, before passing it to `pg_dump`/`pg_restore`/
+`psql`.
+
+**Why:** Found in the same live verification pass as D-098, immediately
+after fixing it — with the permission error gone, every dump attempt
+then failed with `pg_dump: error: invalid URI query parameter:
+"schema"`. `.env.example`'s documented `DATABASE_MIGRATION_ROLE`
+format (and what `prisma migrate deploy` itself needs) carries Prisma's
+own `?schema=public` suffix, a Prisma-specific URI extension that
+plain libpq client tools don't recognize as a valid connection
+parameter and reject outright, rather than ignoring. Dropping it is
+safe specifically because nothing in this schema has ever declared a
+non-default schema (no `@@schema` anywhere in `prisma/schema.prisma`)
+— Postgres's own default (`public`) is exactly where every table
+already lives.
+
+---
+
+### D-100 — 2026-08-31 — Real bug found by a full restore rehearsal: `pg_restore --clean` silently re-widens BR-26's append-only revokes; `restore.sh` now reasserts them explicitly
+
+**Decision:** `restore.sh` runs three `REVOKE UPDATE, DELETE ...`
+statements against the target — identical to the ones the init
+migration itself runs — immediately after `pg_restore` completes, via
+`psql` (already present in this image; see docker/backup/Dockerfile's
+own comment on why this sidecar is `postgres:16-alpine`-based).
+
+**Why:** The single most consequential finding of this module, caught
+only by actually rehearsing a full restore into a genuinely separate
+target and diffing its live privilege grants against the source's —
+exactly the check M14's own done-criterion insists on and exactly the
+class of bug no unit or integration test in this codebase could ever
+catch (`BR26_audit_append_only.test.ts` proves the guarantee against a
+freshly *migrated* database; nothing anywhere exercises it against a
+*restored* one). The init migration
+(`prisma/migrations/*_init/migration.sql`) sets a **standing**
+`ALTER DEFAULT PRIVILEGES FOR ROLE CURRENT_USER IN SCHEMA public GRANT
+SELECT, INSERT, UPDATE, DELETE ON TABLES TO scit_app` rule, then
+narrows three tables (`audit_events`, `case_events`, `grades`) with an
+explicit `REVOKE UPDATE, DELETE` immediately after. That standing rule
+never goes away — it fires on every future `CREATE TABLE` by
+`scit_migrator` in that schema, forever. `pg_restore --clean` drops
+each table before recreating it from the dump; the moment
+`audit_events` is recreated, the standing default-privileges rule
+re-grants `UPDATE`/`DELETE` to `scit_app` immediately, and the dump's
+own (narrower) captured `GRANT` statement for that table — a purely
+additive operation — cannot undo a broader privilege a different rule
+already applied. Verified directly, twice: first confirming the bug
+(`information_schema.role_table_grants` showed `scit_app` holding
+`UPDATE`/`DELETE` on `audit_events` after a plain restore, against
+`INSERT`/`SELECT`-only on the live source it came from, and a `psql`
+session as `scit_app` successfully executing `UPDATE audit_events`
+against the restored copy), then confirming the fix (identical grants
+between source and restored target, and the same `UPDATE` attempt
+correctly rejected with `permission denied for table audit_events`
+post-fix). `restore.sh`'s own top-of-file usage comment is also
+corrected here: the claim that a "fresh `docker compose up`" alone is
+enough to restore onto was wrong — `pg_dump` never dumps role
+*definitions*, only `GRANT`s referencing role names that must already
+exist, and `scit_app` is created by the init migration, not by
+Postgres's own bootstrap; the real precondition is "`prisma migrate
+deploy` has run against the target at least once," now stated
+correctly.

@@ -36,3 +36,14 @@ export async function checkRateLimit(
   }
   return { allowed: count <= limit, remaining: Math.max(0, limit - count) };
 }
+
+/**
+ * §9: "Rate limits on... file upload." M14's own gap — the three
+ * upload-accepting routes (offer letter, completion certificate,
+ * waiver evidence) had none. Keyed by the authenticated user, not IP —
+ * unlike login/password-reset (pre-authentication, IP is the only
+ * identity available), these routes already require a session.
+ */
+export async function checkUploadRateLimit(userId: string): Promise<RateLimitResult> {
+  return checkRateLimit(`upload:${userId}`, 10, 60 * 60);
+}

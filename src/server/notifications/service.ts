@@ -79,17 +79,60 @@ async function deliver(
   }
 }
 
+/**
+ * Runs `fn` over `items` with at most `limit` in flight at once —
+ * plain `Promise.all` over every recipient genuinely exhausted
+ * Prisma's connection pool (default `num_cpus * 2 + 1`, 9 on the
+ * machine this was built on) once a role-targeted template resolved
+ * to more than a handful of recipients at the same instant, and the
+ * resulting `PrismaClientKnownRequestError: Timed out fetching a new
+ * connection from the connection pool` didn't just fail that one
+ * delivery — a request still queued on the pool when its own test's
+ * timeout fires keeps running in the background and competes with
+ * whatever the *next* test needs, which is what actually happened
+ * (found for real: an initial unbounded-`Promise.all` version of
+ * `sendNotification` made several unrelated, earlier-running waiver
+ * tests fail with the same pool-timeout error, well before M14's own
+ * large-recipient sweep test even ran). A small fixed concurrency
+ * avoids ever asking the pool for more connections than it has,
+ * regardless of `DATABASE_URL`'s configured `connection_limit` in any
+ * given environment, while still finishing well under the fully
+ * sequential 165-case x 123-recipient case this was built against.
+ */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
 /** Sends to every recipient `template.recipients` resolves to (by role,
- * or "the student on this case"). */
+ * or "the student on this case"). Delivered with bounded concurrency
+ * (`mapWithConcurrency`, M14) rather than one at a time — a
+ * role-targeted template with many recipients (every `FOCAL` user,
+ * every `HOD` user) previously serialized one create-send-update round
+ * trip per recipient, which is fine at a handful of recipients but
+ * scales linearly with staff headcount for no reason: each recipient's
+ * delivery is already fully independent (`deliver()` catches its own
+ * `sendMail()` failure per recipient, so one slow or failing send can't
+ * block another). */
 export async function sendNotification(
   template: NotificationTemplate,
   caseId: string | null,
   ctx: TemplateContext,
 ): Promise<void> {
   const recipients = caseId ? await resolveRecipients(caseId, template.recipients) : [];
-  for (const recipient of recipients) {
-    await deliver(template, caseId, recipient.email, ctx);
-  }
+  await mapWithConcurrency(recipients, 5, (recipient) => deliver(template, caseId, recipient.email, ctx));
 }
 
 /** Sends to one explicit email address, bypassing role/case

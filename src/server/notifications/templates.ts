@@ -281,6 +281,20 @@ export const SUPERVISOR_SECOND_REMINDER_TEMPLATE: NotificationTemplate = {
   }),
 };
 
+/** BR-05 (M14): a case still missing at least one deliverable once its
+ * governing semester's document deadline has passed. "Flagged, not
+ * auto-failed" — this is the whole of the flag; nothing else in
+ * src/server/roster/deadline-sweep.ts touches `cases.state`. */
+export const DEADLINE_MISSED_TEMPLATE: NotificationTemplate = {
+  id: "deadline-missed",
+  version: 1,
+  recipients: [{ kind: "role", role: "FOCAL" }],
+  render: () => ({
+    subject: "A case has missed the semester's document deadline",
+    text: "A case still has at least one outstanding deliverable past this semester's document submission deadline (BR-05). It has not been auto-failed — please follow up.",
+  }),
+};
+
 export const SUPERVISOR_UNRESPONSIVE_TEMPLATE: NotificationTemplate = {
   id: "supervisor-unresponsive",
   version: 1,

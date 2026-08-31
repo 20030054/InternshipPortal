@@ -91,3 +91,19 @@ export function getHodDigestQueue(): Queue {
   }
   return hodDigestQueue;
 }
+
+// ---------------------------------------------------------------------
+// M14 / BR-05: document deadline sweep
+// ---------------------------------------------------------------------
+
+export const DEADLINE_SWEEP_QUEUE_NAME = "deadline-sweep";
+
+let deadlineSweepQueue: Queue | null = null;
+export function getDeadlineSweepQueue(): Queue {
+  if (!deadlineSweepQueue) {
+    deadlineSweepQueue = new Queue(DEADLINE_SWEEP_QUEUE_NAME, {
+      connection: createConnection(),
+    });
+  }
+  return deadlineSweepQueue;
+}

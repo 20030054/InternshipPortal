@@ -15,6 +15,7 @@ import {
   UnsupportedFileTypeError,
 } from "@/server/documents/store";
 import { InfectedFileError, ScanUnavailableError } from "@/server/documents/clamav";
+import { checkUploadRateLimit } from "@/server/security/rate-limit";
 import { Prisma } from "@prisma/client";
 
 /** `waiver.initiate` (FOCAL): genesis-inserts a new Case in
@@ -30,6 +31,11 @@ export async function POST(
   try {
     const rawIdentity = await getCurrentIdentity();
     const identity = requireCapability(rawIdentity, "waiver.initiate");
+
+    const rate = await checkUploadRateLimit(identity.userId);
+    if (!rate.allowed) {
+      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    }
 
     const formData = await request.formData().catch(() => null);
     if (!formData) {

@@ -43,6 +43,7 @@ describe("M13: exports (XLSX/PDF)", () => {
       "Counts by state",
       "Overdue eligibility",
       "Pending verifications",
+      "Deadline missed",
       "Waivers",
       "Restarts",
     ]);

@@ -136,15 +136,29 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      DATABASE_URL: ${DATABASE_URL:-}
+      # M14: pg_dump runs as the migrator role, not the app role — a
+      # complete dump shouldn't depend on scit_app's own restricted
+      # privileges (BR-26's append-only grants) staying readable to a
+      # future pg_dump version's exact requirements.
+      DATABASE_MIGRATION_ROLE: ${DATABASE_MIGRATION_ROLE:-}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-3600}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
     volumes:
       - scit_backups:/backups
     depends_on:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "find /tmp/healthy -mmin -70 | grep -q healthy"]
+      # M14: checks for an actual recent dump file, not just that the
+      # loop process is still alive — the previous version
+      # (`find /tmp/healthy ...`, /tmp/healthy touched unconditionally
+      # every cycle regardless of whether pg_dump succeeded) reported
+      # this service healthy through a real, previously-undiscovered
+      # bug where every single dump attempt failed with a permission
+      # error from first start (see docker/backup/Dockerfile's own
+      # comment). This is the only check that actually verifies the
+      # thing an operator cares about.
+      test: ["CMD-SHELL", "find /backups -name 'scit_*.dump' -mmin -70 | grep -q ."]
       interval: 60s
       timeout: 5s
       start_period: 30s

@@ -19,6 +19,7 @@ import {
   UnsupportedFileTypeError,
 } from "@/server/documents/store";
 import { InfectedFileError, ScanUnavailableError } from "@/server/documents/clamav";
+import { checkUploadRateLimit } from "@/server/security/rate-limit";
 
 /** `case.open`: same capability as POST /api/cases — MASTER_PROMPT.md
  * §3's "Open case / upload offer letter" is one row/one capability.
@@ -33,6 +34,11 @@ export async function POST(
   try {
     const rawIdentity = await getCurrentIdentity();
     const identity = requireCapability(rawIdentity, "case.open");
+
+    const rate = await checkUploadRateLimit(identity.userId);
+    if (!rate.allowed) {
+      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    }
 
     const kase = await prisma.case.findUnique({
       where: { id },

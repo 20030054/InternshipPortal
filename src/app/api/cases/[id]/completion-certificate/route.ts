@@ -12,6 +12,7 @@ import {
 } from "@/server/documents/store";
 import { InfectedFileError, ScanUnavailableError } from "@/server/documents/clamav";
 import { advanceToVerificationIfReady } from "@/server/grading/service";
+import { checkUploadRateLimit } from "@/server/security/rate-limit";
 import type { CaseState } from "@prisma/client";
 
 /**
@@ -35,6 +36,11 @@ export async function POST(
   try {
     const rawIdentity = await getCurrentIdentity();
     const identity = requireCapability(rawIdentity, "document.upload_completion_certificate");
+
+    const rate = await checkUploadRateLimit(identity.userId);
+    if (!rate.allowed) {
+      return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    }
 
     const kase = await prisma.case.findUnique({
       where: { id },

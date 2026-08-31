@@ -13,11 +13,23 @@
 	encode zstd gzip
 
 	header {
-		# Baseline hardening; M14 owns the full CSP, HSTS and remaining
-		# security headers per MASTER_PROMPT.md §9 — this is intentionally
-		# minimal for M00 and not the final policy.
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
+		# M14/§9: CSP (with its per-request script nonce), X-Content-Type-
+		# Options, X-Frame-Options, Referrer-Policy and Permissions-Policy
+		# are all set by src/middleware.ts instead of here — the nonce is
+		# generated per-request by the app itself, so those headers have
+		# to originate there, not at this static reverse-proxy layer. HSTS
+		# is the one exception: it belongs at the TLS-terminating hop
+		# (this is the only service with published ports/real TLS), and a
+		# browser only honors it in the first place once a connection has
+		# already arrived over HTTPS, which is decided here, not in Next.
+		#
+		# 31536000s = 1 year. includeSubDomains since {$APP_URL} is not
+		# expected to host unrelated subdomains that would need to opt
+		# out. `preload` deliberately omitted — submission to browsers'
+		# HSTS preload list is a one-way, hard-to-reverse operational
+		# step (removal takes months to propagate) that shouldn't be taken
+		# as a side effect of a header default; see D-093 in docs/DECISIONS.md.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 
 	log {

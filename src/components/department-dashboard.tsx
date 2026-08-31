@@ -6,6 +6,7 @@ import type {
   WaiverRow,
   RestartRow,
 } from "@/server/dashboards/hod-view";
+import type { DeadlineMissedRow } from "@/server/roster/deadline-sweep";
 import { DataTable } from "@/components/data-table";
 import { Card, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,10 @@ const waiverColumns: ColumnDef<WaiverRow, unknown>[] = [
     header: "Requested",
     cell: ({ row }) => row.original.createdAt.toLocaleDateString(),
   },
+];
+
+const deadlineMissedColumns: ColumnDef<DeadlineMissedRow, unknown>[] = [
+  { accessorKey: "studentName", header: "Student" },
 ];
 
 const restartColumns: ColumnDef<RestartRow, unknown>[] = [
@@ -84,6 +89,15 @@ export function DepartmentDashboard({ dashboard }: { dashboard: HodDashboard }) 
           columns={pendingVerificationColumns}
           data={dashboard.pendingVerifications}
           emptyState="Nothing is awaiting verification right now."
+        />
+      </section>
+
+      <section>
+        <CardTitle className="mb-3">Deadline missed — flagged, not auto-failed (BR-05)</CardTitle>
+        <DataTable
+          columns={deadlineMissedColumns}
+          data={dashboard.deadlineMissed}
+          emptyState="No case has missed the current semester's document deadline."
         />
       </section>
 

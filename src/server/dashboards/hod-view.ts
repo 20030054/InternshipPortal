@@ -3,6 +3,7 @@ import { prisma } from "@/server/db/client";
 import { computeEligibility, type SemesterFact } from "@/server/roster/eligibility";
 import { listWaivers } from "@/server/waivers/service";
 import { listAllRestartRequests } from "@/server/restart/service";
+import { findDeadlineMissedCases, type DeadlineMissedRow } from "@/server/roster/deadline-sweep";
 
 export type StateCount = { state: CaseState; count: number };
 
@@ -41,6 +42,9 @@ export type HodDashboard = {
   pendingVerifications: PendingVerificationRow[];
   waivers: WaiverRow[];
   restarts: RestartRow[];
+  /** BR-05 (M14) — flagged, never auto-failed. See
+   * src/server/roster/deadline-sweep.ts. */
+  deadlineMissed: DeadlineMissedRow[];
 };
 
 async function studentNameById(studentId: string): Promise<string> {
@@ -81,6 +85,7 @@ export async function getHodDashboard(): Promise<HodDashboard> {
     listWaivers(),
     listAllRestartRequests(),
   ]);
+  const deadlineMissed = await findDeadlineMissedCases();
 
   const waivers: WaiverRow[] = await Promise.all(
     rawWaivers.map(async (w) => ({
@@ -127,5 +132,6 @@ export async function getHodDashboard(): Promise<HodDashboard> {
     })),
     waivers,
     restarts,
+    deadlineMissed,
   };
 }

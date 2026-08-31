@@ -51,6 +51,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     maxAge: 8 * 60 * 60,
     updateAge: 60 * 60,
   },
+  // §9: "HttpOnly, Secure, SameSite=Lax cookies." `httpOnly`/`sameSite`
+  // made explicit rather than left as an unverified default, since §9
+  // calls this out as a named acceptance criterion. `secure` is
+  // deliberately *not* hardcoded here: Auth.js v5 already sets it
+  // dynamically based on whether the request looks HTTPS (true in every
+  // real deployment, where Caddy terminates TLS) — hardcoding `true`
+  // would break `next dev` against plain HTTP with no way to log in at
+  // all (a browser silently refuses to send a `Secure` cookie over
+  // HTTP), for a property Auth.js's own default already gets right
+  // per-environment.
+  cookies: {
+    sessionToken: {
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+      },
+    },
+  },
   pages: {
     signIn: "/login",
   },

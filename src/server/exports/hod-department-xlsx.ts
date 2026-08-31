@@ -36,6 +36,10 @@ export async function buildHodDepartmentWorkbook(dashboard: HodDashboard): Promi
     verifications.addRow({ studentName: row.studentName, companyName: row.companyName ?? "" });
   }
 
+  const deadlineMissed = workbook.addWorksheet("Deadline missed");
+  deadlineMissed.columns = [{ header: "Student", key: "studentName", width: 28 }];
+  for (const row of dashboard.deadlineMissed) deadlineMissed.addRow({ studentName: row.studentName });
+
   const waivers = workbook.addWorksheet("Waivers");
   waivers.columns = [
     { header: "Student", key: "studentName", width: 28 },

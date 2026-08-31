@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Inter, Source_Serif_4 } from "next/font/google";
 import "./globals.css";
 
@@ -23,11 +24,20 @@ export const metadata: Metadata = {
     "School of Computer & Information Technology, Beaconhouse National University — internship course administration.",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // M14/§9: reading the per-request CSP nonce here (set by
+  // src/middleware.ts) is what makes Next apply it to its own inline
+  // hydration scripts automatically — and, as a side effect, opts every
+  // route sharing this layout out of static generation, which nonce-
+  // based CSP requires: a statically-prerendered page's scripts are
+  // baked in at build time and can never match a fresh per-request
+  // nonce.
+  await headers();
+
   return (
     <html lang="en" className={`${inter.variable} ${sourceSerif.variable}`}>
       <body className="font-sans antialiased">{children}</body>

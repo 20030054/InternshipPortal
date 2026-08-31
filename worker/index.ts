@@ -17,10 +17,12 @@ import {
   SLA_ESCALATION_QUEUE_NAME,
   SUPERVISOR_REMINDER_QUEUE_NAME,
   HOD_DIGEST_QUEUE_NAME,
+  DEADLINE_SWEEP_QUEUE_NAME,
   SLA_SWEEP_INTERVAL_MS,
   getSlaEscalationQueue,
   getSupervisorReminderQueue,
   getHodDigestQueue,
+  getDeadlineSweepQueue,
 } from "../src/server/jobs/queue";
 import { runAutoEnrollmentSweep } from "../src/server/roster/auto-enrollment-sweep";
 import { dispatchTransitionNotification } from "../src/server/notifications/service";
@@ -29,6 +31,7 @@ import {
   runSupervisorReminderSweep,
   runHodDigest,
 } from "../src/server/sla/service";
+import { runDeadlineSweep } from "../src/server/roster/deadline-sweep";
 
 const HEARTBEAT_PATH = "/tmp/healthy";
 const HEARTBEAT_INTERVAL_MS = 15_000;
@@ -132,6 +135,21 @@ hodDigestWorker.on("failed", (job, err) => {
   log("HoD digest job failed", { jobId: job?.id, error: err.message });
 });
 
+const deadlineSweepWorker = new Worker(
+  DEADLINE_SWEEP_QUEUE_NAME,
+  async (job: Job) => {
+    log("deadline sweep job started", { jobId: job.id });
+    const result = await runDeadlineSweep();
+    log("deadline sweep job finished", { jobId: job.id, ...result });
+    heartbeat();
+    return result;
+  },
+  { connection },
+);
+deadlineSweepWorker.on("failed", (job, err) => {
+  log("deadline sweep job failed", { jobId: job?.id, error: err.message });
+});
+
 /**
  * Registers every repeatable schedule at worker startup. BullMQ dedupes
  * repeatable jobs by their repeat configuration + jobId, so restarting
@@ -170,6 +188,13 @@ async function registerSchedules(): Promise<void> {
     { name: "digest" },
   );
   log("HoD digest schedule registered", { intervalMs: SLA_SWEEP_INTERVAL_MS });
+
+  await getDeadlineSweepQueue().upsertJobScheduler(
+    "deadline-sweep-schedule",
+    { every: SLA_SWEEP_INTERVAL_MS },
+    { name: "sweep" },
+  );
+  log("deadline sweep schedule registered", { intervalMs: SLA_SWEEP_INTERVAL_MS });
 }
 
 heartbeat();
@@ -186,7 +211,7 @@ registerSchedules().catch((err: unknown) => {
 });
 
 log("worker ready", {
-  note: "consuming roster-sweep, case-notifications, sla-escalation-sweep, supervisor-reminder-sweep, hod-digest queues",
+  note: "consuming roster-sweep, case-notifications, sla-escalation-sweep, supervisor-reminder-sweep, hod-digest, deadline-sweep queues",
 });
 
 process.on("SIGTERM", () => {
@@ -198,5 +223,6 @@ process.on("SIGTERM", () => {
     slaEscalationWorker.close(),
     supervisorReminderWorker.close(),
     hodDigestWorker.close(),
+    deadlineSweepWorker.close(),
   ]).finally(() => process.exit(0));
 });

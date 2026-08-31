@@ -1,22 +1,25 @@
 # Progress
 
-**Current module:** M14 — up next, not started
+**Current module:** none — M14 complete. All 15 modules (M00-M14) from
+`MASTER_PROMPT.md` §7 are built. This was the master prompt's own final
+module; there is no "next module" to point at.
 **Last session:** 2026-08-31
-**Build status:** green (`docker compose up --build` succeeds from a clean
-volume state; migrations applied against the compose-network Postgres and
-`scit_app` provisioned; `/api/ready` returns 200 with database and redis
-both `ok: true`; `/login` and `/` (redirecting unauthenticated visitors)
-both confirmed rendering over real HTTP through Caddy; the full M13 arc —
-a student's progress line correctly at step 4 then moving live to step 5
-the instant a real offer approval transitions the case, the Focal queue
-correctly listing and SLA-sorting a pending case, the HoD view's counts/
-overdue-eligibility/waivers/restarts all populated from real data, the
-Dean view carrying the same data read-only, a real `@react-pdf/renderer`
-PDF with correct magic bytes, and a real `exceljs` workbook with all five
-expected sheets — exercised directly against the real compose-network
-database, not just in tests. `pnpm lint`, `pnpm typecheck`, `next build`,
-`pnpm test` [224/224], `pnpm test:integration` [334/334] all pass,
-confirmed on two consecutive freshly-recreated temp Postgres/Redis runs.)
+**Build status:** green. `pnpm lint`, `pnpm exec tsc --noEmit`, `next
+build`, `pnpm test` [241/241], `pnpm test:integration` [357/357] all
+pass, confirmed on two consecutive freshly-recreated temp Postgres/
+Redis runs. `pnpm audit` reports zero known vulnerabilities. A full,
+real `docker compose up --build` from a clean volume state (all 7
+services, every one reaching `healthy`) was exercised end to end: real
+migrations applied via a builder-stage image, the runtime role
+provisioned, seed data loaded, a real credentials login producing a
+correctly-attributed session cookie, live CSP/HSTS/CSRF/security-header
+proofs against the real containerized app (not just unit tests — see
+`docs/SECURITY_CHECKLIST.md`), a real ClamAV EICAR positive against the
+live antivirus service, and — the module's own literal done-criterion —
+a real backup taken from the live stack restored into a completely
+separate, empty Postgres instance, with every row count and the exact
+`audit_events`/`case_events`/`grades` append-only privilege posture
+verified to match the source exactly.
 
 ## Completed modules
 - [x] M00 Repo + Docker skeleton
@@ -33,75 +36,121 @@ confirmed on two consecutive freshly-recreated temp Postgres/Redis runs.)
 - [x] M11 The waiver path
 - [x] M12 Notifications and SLA escalation
 - [x] M13 Dashboards and reporting
-- [ ] M14 Hardening, backup and handover  <- up next, not started
+- [x] M14 Hardening, backup and handover
 
 ## Where I stopped
-Implemented M13 in full per `/docs/modules/M13.md` — the first UI
-module. Every prior module shipped an API surface with no screen behind
-it; M00's placeholder home page and M02's deliberately unstyled login
-page both said so explicitly ("replaced entirely by M13"). Built on
-M00's already-scaffolded design system (`tailwind.config.ts`'s §10
-palette, `globals.css`, `components.json`'s shadcn conventions, never
-exercised until now): four screens (`/` role-dispatching to the
-student's own progress line or redirecting staff to their own screen,
-`/focal`, `/hod`, `/dean`), hand-written `Button`/`Badge`/`Card`
-primitives against `components.json`'s own conventions rather than the
-shadcn CLI, a shared `DataTable` (TanStack Table v8 — pinned below the
-newly-released, still-undocumented v9 — see D-079), a case-summary PDF
-(`@react-pdf/renderer`) and an HoD department XLSX export (`exceljs`,
-§6.1 names no XLSX library — D-080).
 
-Four new capabilities (`dashboard.view_student`/`_focal`/`_hod`/`_dean`,
-D-082) gate the four screens — §3's eighteen rows are all about
-mutations, none of them answer "who may load which read-only screen,"
-and `case.view_any` alone can't discriminate `/focal` from `/hod` from
-`/dean` since all three roles hold it at once by design. Every dashboard
-is read-only by this module's own explicit scope decision (D-083) —
-action-taking forms for the routes M05-M11 already built are a real,
-separable follow-on, not something this module's own done-criterion
-needs. "Overdue eligibility" (D-084) reads as eligible-and-zero-cases —
-the earliest real "at risk of not graduating" signal, directly answering
-the module's own done-criterion on `/hod`.
+Implemented M14 in full per `/docs/modules/M14.md`. The single biggest
+piece of this module was discovering — and fixing, for real, not just
+documenting — three categories of gap that had survived all 13 prior
+"complete" modules:
 
-Two real tooling gaps found and fixed, not by the user: Vitest's default
-transform pipeline in this dependency version is Oxc (Rolldown's Rust
-transformer), which silently ignores `esbuild.jsx` once both are
-configured — no test had ever imported a `.tsx` file before this module
-needed to test the PDF export, so this was invisible until now. Fixed by
-disabling Oxc explicitly (`oxc: false`) alongside the `esbuild.jsx`
-override in both Vitest configs (D-086). And a live-verification-script-
-only issue: bare `tsx` CLI invocations default to the classic JSX
-transform (needing `React` in scope) unlike Next's own automatic-runtime
-SWC build — fixed with an explicit, harmless `import React from "react"`
-in the one `.tsx` file outside `src/app`/`src/components`.
+**Two entire business rules with zero implementation.** Auditing every
+`BR-XX_*.test.ts` file against §4's full BR-01-to-BR-28 list (this
+module's own done-criterion) found BR-03 ("no graduation-eligible mark
+without a `CLOSED_PASS` case or an approved waiver") and BR-05
+("cases missing deliverables at the semester deadline are flagged, not
+auto-failed") with no code behind them anywhere, not just no test. Both
+built for real this module (`src/server/roster/graduation.ts`,
+`src/server/roster/deadline-sweep.ts`), following the same "computed at
+query time, never stored or auto-acted-on" pattern BR-01/BR-04/BR-27
+already established. See D-088.
 
-One real, more consequential test-fixture bug, a direct extension of
-D-064's lesson from M10: two of this module's own tests needed G2
-(BR-17, "time remains") to genuinely pass, and reused D-064's specific
-41000-49999 numeric window without re-deriving whether it still held —
-it didn't, because unlike the BR-prefixed files that established that
-window (all sorting *before* `M03_...` alphabetically), every M13 file
-sorts *after* it, so `M03_eligibility_route_ownership.test.ts`'s own
-50000+ blocks — and `M03_semester_admin_routes.test.ts`'s
-`nextSequenceNumber()`-assigned semesters, observed reaching into the
-tens of millions in a real run — already exist by the time M13's tests
-run. Fixed with a much higher, hundreds-of-millions block instead of a
-narrow "below X" window (D-087) — a generalised version of the lesson
-for whichever future module hits this next.
+**A capability that existed only in name.** `users.manage`
+(`src/server/authz/matrix.ts`) has gated roster import and semester
+routes since M02/M03, and §2.6/§3 both explicitly name "create and
+deactivate user accounts" as one of Admin's own capabilities — but no
+module ever built the route for it, meaning there was genuinely no way
+to onboard a new Focal Person, exactly what §8.3's runbook is required
+to cover. Built for real: `POST /api/admin/users` (staff-only, not
+students — roster import stays the dedicated student path) and
+`POST /api/admin/users/:id/deactivate`, reusing M02's existing
+password-reset token mechanism for onboarding rather than inventing a
+second one. See D-097.
+
+**A backup/restore mechanism that had never actually worked.** Real,
+full `docker compose up --build` verification — not `docker compose
+config --quiet`, not trusting that the shell scripts typecheck — found
+the backup sidecar's every scheduled dump had been silently failing
+with a permission error since its very first start (a fresh named
+Docker volume defaults to root ownership; the image never created
+`/backups` to set it), invisible in `docker compose ps` because the
+old healthcheck only proved the loop process was alive, not that it
+was succeeding. Fixed, then a second bug surfaced immediately behind
+it (`pg_dump`/`pg_restore` reject Prisma's own `?schema=public` URI
+parameter outright). Fixed, then — the most consequential finding of
+the whole module, caught only by actually rehearsing a full restore
+into a separate empty database and diffing its live privilege grants
+against the source's — a third: `pg_restore --clean` silently
+re-widens BR-26's append-only revokes on `audit_events`/`case_events`/
+`grades`, because dropping and recreating those tables re-triggers a
+standing `ALTER DEFAULT PRIVILEGES` rule the init migration itself
+sets, and a narrower `GRANT` statement afterward cannot undo a broader
+privilege a different rule already applied. `restore.sh` now
+reasserts the exact same `REVOKE` statements as an explicit final
+step, verified twice — first reproducing the bug, then confirming the
+fix — against a real, separate restored database. See D-098/D-099/
+D-100 for the full account of all three.
+
+Full §9 security checklist demonstrated live, not just unit-tested
+where a unit test genuinely can't reach the thing being proven (the
+CSP nonce mechanism, CSRF middleware, and session cookie attributes
+all live in `src/middleware.ts`/Auth.js internals that the
+established route-handler-direct-call integration test pattern cannot
+exercise) — every item in `docs/SECURITY_CHECKLIST.md` is either a
+named, runnable test or a captured live command-and-output pair
+against the real containerized app. Rate limiting extended to the
+three upload-accepting routes (§9 names file upload explicitly; none
+had it). Notification delivery (`sendNotification()`) changed from
+fully sequential to bounded-concurrency (`mapWithConcurrency`, limit
+5) after building M14's own BR-05 sweep test — run at the tail of the
+whole shared-database test suite by necessity (see below) — revealed
+it scaling badly with (missed cases) x (recipients), and an
+unbounded-`Promise.all` first attempt at fixing that instead exhausted
+Prisma's connection pool badly enough to make *other, unrelated*
+already-passing tests fail (D-095). A `pnpm audit` dependency audit
+fixed all 7 findings directly (a direct `nodemailer` bump plus a
+`pnpm.overrides` block for three transitive packages), none accepted
+as unactionable risk, all verified against the real build pipeline and
+test suite (D-096).
+
+One real, structural test-suite lesson, generalizing D-087's already
+partial fix: `computeEligibility()` counts every `CLOSED` semester in
+the shared test database at or above a student's admission point,
+globally, with no other scoping — so *any* new closed semester a test
+file creates pollutes every other test's own eligibility/G2 math, for
+any test with a lower admission point that runs *after* it. Neither a
+low numeric block nor a high one structurally fixes this from an
+early-sorting file — the position in run order is what matters, not
+the magnitude of the number picked. `M14_BR03_graduation_eligibility
+.test.ts` and `M14_BR05_deadline_missed.test.ts` are named to sort
+after every other test file in the suite specifically to guarantee
+nothing downstream can ever be polluted by them, rather than picking
+"a high enough" block and hoping (D-094).
+
+Three new top-level docs this module explicitly required:
+`docs/SECURITY_CHECKLIST.md`, `docs/RUNBOOK.md` (deploy, upgrade,
+backup, restore, staff onboarding/deactivation, roster/semester admin,
+secret rotation, the ClamAV false-positive procedure, reading the
+audit log — every one of §8.3's named topics, corrected in place
+during real verification: the runtime `app`/`worker` image carries
+neither `prisma/` nor a package manager, so migrations and seeding
+route through a separately-built `builder`-stage image, and role
+provisioning routes through `postgres`'s own bundled `psql` rather
+than a script that assumes a tool no image in this project actually
+ships), and `docs/ADMIN_GUIDE.md` (day-to-day use for Focal/HoD/Dean/
+Admin, distinct from the RUNBOOK's infrastructure focus).
 
 ## Next action
-Write `/docs/modules/M14.md`, then implement security headers, CSP,
-rate limiting, CSRF, a dependency audit, the §9 penetration checklist,
-a backup and restore rehearsal, an operator runbook, and an admin
-training document. **Done when** a restore from backup into an empty
-environment reproduces the system exactly. This is the master prompt's
-final module (§7) — M14's own done-criterion doubles as the project's
-overall acceptance bar (§11): "every business rule BR-01 to BR-28 has a
-passing named test... a backup taken on one machine restores correctly
-on another... the runbook is complete enough that a new administrator
-can perform every operational task from it alone."
+
+None — this was the final module. If a future session picks this back
+up, the natural next steps are the genuinely open items below (all
+policy questions for BNU, not implementation gaps), or a real UI
+build-out for the M05-M11 action-taking forms M13 deliberately left
+read-only-only (see M13's own D-083).
 
 ## Blocked on
+
 - OQ-14 (BNU holiday calendar / weekend convention for BR-27's working-
   days clock) — restrictive default (Sat-Sun only, no holidays) applied
   in M12.
@@ -109,25 +158,29 @@ can perform every operational task from it alone."
   applied in M10, inferred only from a seed-data hint; needs a real
   Registrar/HoD answer.
 - OQ-09 (does a waiver appear on the transcript differently from a
-  pass?) — genuinely open; M13's dashboards never conflate `WAIVER_
+  pass?) — genuinely open; no dashboard anywhere conflates `WAIVER_
   GRANTED` with `CLOSED_PASS`, precisely so this can still be answered
   either way without a rewrite.
-- OQ-04 (who holds the Dean role, is there a delegate) — both M10's
-  escalation route and M11's final waiver signature already require one
-  live `DEAN`-role account with no delegate mechanism; `/dean` now makes
-  this visible on a real screen too.
+- OQ-04 (who holds the Dean role, is there a delegate) — M10's
+  escalation route and M11's final waiver signature both require one
+  live `DEAN`-role account with no delegate mechanism.
 - OQ-03 (confirm `RESTART_CAP` = 1) — the default is live and enforced
   by G4 as of M10; the number itself is still unconfirmed by the HoD.
 - OQ-02 (completion certificate verification standard) — restrictive
   default (any single listed method) applied in M09.
-- OQ-07 (document retention period) — doesn't block M13/M14, but the
-  vault's eventual purge/retention behavior needs a real answer before
-  M14's own backup/retention story is complete.
+- OQ-07 (document retention period) — the vault never deletes a file
+  regardless (§9), but the actual retention *period* number is still
+  needed for a real purge policy, not blocking anything built so far.
 - OQ-08 (evaluation visibility to students) — restrictive default
   (hidden) applied in M08, exactly as the master prompt specified.
-- OQ-01 (per-semester document deadlines) — `semesters.document_deadline`
-  stays nullable/admin-set until answered.
+- OQ-01 (per-semester document deadlines) — BR-05's sweep mechanism is
+  real and live as of M14, but stays dormant (never flags anything)
+  until real dates are actually set on each semester; see M14's own
+  resolution-log entry in `docs/OPEN_QUESTIONS.md`.
 - OQ-06 (roster format) — CSV implemented as the restrictive default;
   XLSX support would be additive if ever needed.
 - OQ-05 (BNU OIDC/SAML) — restrictive default applied in M02.
 - OQ-10 (tenancy) — restrictive default applied in M01.
+- OQ-11/OQ-12 — both resolved with real implementations (M05, M11
+  respectively); kept in the table per the log's own append-only
+  convention.
