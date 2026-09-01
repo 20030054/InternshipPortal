@@ -4,6 +4,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { ActionForm } from "@/components/action-form";
+import { EditDeadlineForm } from "@/components/admin/edit-deadline-form";
 
 /** `"use client"` from the first line — same D-105 reasoning as every
  * other table in this codebase with a `cell` function. Plain
@@ -40,7 +41,17 @@ const columns: ColumnDef<SemesterRow, unknown>[] = [
   {
     accessorKey: "documentDeadline",
     header: "Document deadline",
-    cell: ({ row }) => row.original.documentDeadline ?? <span className="text-muted">not set (BR-05)</span>,
+    // OQ-01, answered: editable here, not just at creation — keyed by
+    // the deadline value itself so a successful save (which resets the
+    // form, then `router.refresh()`s new server data down) remounts
+    // with the new value as its default instead of going stale.
+    cell: ({ row }) => (
+      <EditDeadlineForm
+        key={row.original.documentDeadline}
+        semesterId={row.original.id}
+        currentDeadline={row.original.documentDeadline}
+      />
+    ),
   },
   {
     id: "actions",

@@ -6,7 +6,7 @@ in the code at the point it matters.
 
 | ID | Question | Blocks | Owner | Status |
 |---|---|---|---|---|
-| OQ-01 | Exact per-semester document submission deadline dates | M03, M14 | Focal Person | Open — restrictive default applied (M14: unset means never flagged) |
+| OQ-01 | Exact per-semester document submission deadline dates | M03, M14 | Focal Person | **Resolved** — see resolution log. Deadlines are Admin-entered per semester, not a fixed calendar rule; the actual date for each semester is still whatever the Admin sets, but the *mechanism* is now fully decided and built |
 | OQ-02 | What counts as acceptable verification of a completion certificate — is employer contact required, or is document inspection sufficient? | M09 | Focal Person / HoD | Open — restrictive default applied (any single listed method suffices) |
 | OQ-03 | Confirm `RESTART_CAP` = 1, or a different number | M10 | HoD | Open — restrictive default (1) now live and enforced by G4 |
 | OQ-04 | Who holds the Dean role in the system, and is there a delegate? | M10, M11 | Dean's office | Open — M10's escalation ruling now requires one live `DEAN`-role account; no delegate mechanism exists |
@@ -174,19 +174,26 @@ different weekend convention, that's an additive change to
 `countWeekendDaysBetween()` (and, for holidays, a small lookup table),
 not a rewrite of BR-27's escalation logic itself.
 
-### OQ-01 — restrictive default applied in M14, real dates still needed
+### OQ-01 — restrictive default applied in M14, resolved in M15
 
 `findDeadlineMissedCases()`/`runDeadlineSweep()`
 (`src/server/roster/deadline-sweep.ts`, BR-05) treat a semester with no
 `documentDeadline` configured as one that can never flag a case — see
 `isPastDocumentDeadline()`'s own null check. This is the restrictive
 default (never guess at a date nobody set) and means the whole
-mechanism is dormant, harmlessly, until the Focal Person actually sets
-`documentDeadline` when creating or editing a semester (`docs/RUNBOOK.md`
-§8). Still genuinely open: OQ-01 itself asks for the *actual* per-
-semester dates, which this module can't answer on its own — but
-answering it later needs no code change, only setting the field on
-each semester going forward.
+mechanism is dormant, harmlessly, until the deadline is actually set.
+
+**Resolved:** the answer isn't a fixed calendar rule — `documentDeadline`
+is Admin-entered per semester, set when the semester (batch) is
+created, and deliberately *not* final at that point: `POST
+/api/admin/semesters/:id/deadline` (`docs/RUNBOOK.md` §8, `docs/
+DECISIONS.md` D-119) lets the Admin change it — or clear it back to
+unset — at any time afterward, regardless of the semester's status.
+The exact date for any given semester is still whatever the Admin
+sets (this module can't answer that on its own, and was never going
+to), but the mechanism — who sets it, when, and whether it can change
+— is now fully decided and built, not just a restrictive default
+waiting on a real answer.
 
 ### OQ-15 — gap surfaced in M15, no default applied (nothing to guess at)
 

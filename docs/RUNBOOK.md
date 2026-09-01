@@ -329,6 +329,17 @@ curl -X POST https://<APP_URL>/api/admin/semesters \
   -d '{"type": "FALL", "year": 2026, "startsOn": "2026-09-01", "endsOn": "2026-12-31", "documentDeadline": "2026-12-15"}'
 ```
 
+**Changing a semester's deadline later** (OQ-01: the deadline set at
+creation isn't final — change it, or clear it back to unset, any time
+regardless of the semester's status):
+
+```
+curl -X POST https://<APP_URL>/api/admin/semesters/<semester-id>/deadline \
+  -H "Content-Type: application/json" -b "<admin's session cookie>" \
+  -d '{"documentDeadline": "2027-01-15"}'
+# omit the field (-d '{}') to clear it back to unset
+```
+
 **Opening/closing a semester** ("current semester" is always explicit
 admin action, never inferred from today's date — see
 `docs/DECISIONS.md` D-020):

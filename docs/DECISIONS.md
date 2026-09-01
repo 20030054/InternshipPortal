@@ -2623,3 +2623,40 @@ case already past approval (`IN_PROGRESS`) gets 409, not a crash.
 Full suite: 361/361 plus this file's own 9 new cases.
 
 See `docs/OPEN_QUESTIONS.md` OQ-15, updated to reflect this.
+
+---
+
+### D-119 — 2026-09-01 — OQ-01 answered: deadlines are Admin-entered per semester, editable any time after creation
+
+**Decision:** `setSemesterDeadline()` (`src/server/roster/semesters.ts`)
+and its route, `POST /api/admin/semesters/:id/deadline`
+(`updateSemesterDeadlineSchema`), let an Admin change — or clear back
+to unset — a semester's `documentDeadline` at any time, on a semester
+of any status (`UPCOMING`/`OPEN`/`CLOSED`). `EditDeadlineForm` puts
+this inline in the semesters table on `/admin`, replacing the
+previous read-only display; an empty submission clears the deadline,
+the same "absent key or `null` both mean unset" convention
+`createSemesterSchema`'s own `documentDeadline` field already used at
+creation.
+
+**Why:** Direct answer from the user to OQ-01: deadlines are set by
+the Admin when creating a semester (already true — `POST
+/api/admin/semesters` has accepted `documentDeadline` since M14), but
+must also be changeable afterward, which nothing before this let an
+Admin do. No status restriction on the edit deliberately — a deadline
+is metadata describing the semester, not a state-machine transition,
+and BR-05's sweep (`deadline-sweep.ts`) already scopes itself to
+whichever semester is currently `OPEN`, so editing a `CLOSED` or
+`UPCOMING` semester's deadline is simply inert until that semester is
+opened, exactly like setting one was at creation.
+
+Verified live and via a new integration suite
+(`tests/integration/M03_semester_admin_routes.test.ts`, 6 new cases):
+setting a deadline where none existed, changing an already-set one,
+clearing it via an omitted field, editing works on `CLOSED` semesters
+too (not just `OPEN`), rejects a non-Admin session (403), and 404s
+(not 500) for a non-existent semester. `tsc`/lint clean; full suite
+green (`pnpm test` 242/242; `pnpm test:integration` 376/376).
+
+See `docs/OPEN_QUESTIONS.md` OQ-01, now resolved, and `docs/RUNBOOK.md`
+§8 for the operator-facing `curl` example.

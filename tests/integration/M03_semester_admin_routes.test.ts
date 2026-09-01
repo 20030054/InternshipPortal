@@ -2,9 +2,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GET, POST } from "@/app/api/admin/semesters/route";
 import { POST as openRoute } from "@/app/api/admin/semesters/[id]/open/route";
 import { POST as closeRoute } from "@/app/api/admin/semesters/[id]/close/route";
+import { POST as deadlineRoute } from "@/app/api/admin/semesters/[id]/deadline/route";
 import { prisma } from "@/server/db/client";
 import { sessionState } from "./setup";
-import { assignRole, createUserFixture } from "./support/prisma-fixtures";
+import { assignRole, createSemesterFixture, createUserFixture } from "./support/prisma-fixtures";
+
+function jsonRequest(body: unknown): Request {
+  return new Request("http://test", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
 
 describe("M03: semester admin routes", () => {
   // Shares one database with every other integration test file (see
@@ -110,5 +119,94 @@ describe("M03: semester admin routes", () => {
       }),
     });
     expect(response.status).toBe(404);
+  });
+
+  // OQ-01, answered: a deadline is editable after creation, regardless
+  // of semester status — deliberately not just at `POST .../semesters`
+  // time.
+  describe("PATCH-shaped: POST /api/admin/semesters/:id/deadline (OQ-01)", () => {
+    it("Admin can set a deadline on a semester that had none", async () => {
+      const admin = await createUserFixture();
+      await assignRole(admin.id, "ADMIN");
+      sessionState.current = { user: { id: admin.id } };
+      const semester = await createSemesterFixture({ status: "OPEN" });
+      expect(semester.documentDeadline).toBeNull();
+
+      const response = await deadlineRoute(jsonRequest({ documentDeadline: "2027-01-15" }), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.documentDeadline.slice(0, 10)).toBe("2027-01-15");
+    });
+
+    it("Admin can change an already-set deadline", async () => {
+      const admin = await createUserFixture();
+      await assignRole(admin.id, "ADMIN");
+      sessionState.current = { user: { id: admin.id } };
+      const semester = await createSemesterFixture({ status: "OPEN" });
+      await deadlineRoute(jsonRequest({ documentDeadline: "2027-01-15" }), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+
+      const response = await deadlineRoute(jsonRequest({ documentDeadline: "2027-03-01" }), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.documentDeadline.slice(0, 10)).toBe("2027-03-01");
+    });
+
+    it("an omitted documentDeadline clears it back to unset", async () => {
+      const admin = await createUserFixture();
+      await assignRole(admin.id, "ADMIN");
+      sessionState.current = { user: { id: admin.id } };
+      const semester = await createSemesterFixture({ status: "OPEN" });
+      await deadlineRoute(jsonRequest({ documentDeadline: "2027-01-15" }), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+
+      const response = await deadlineRoute(jsonRequest({}), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.documentDeadline).toBeNull();
+    });
+
+    it("works on a CLOSED or UPCOMING semester too — no status restriction", async () => {
+      const admin = await createUserFixture();
+      await assignRole(admin.id, "ADMIN");
+      sessionState.current = { user: { id: admin.id } };
+      const semester = await createSemesterFixture({ status: "CLOSED" });
+
+      const response = await deadlineRoute(jsonRequest({ documentDeadline: "2027-06-01" }), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+      expect(response.status).toBe(200);
+    });
+
+    it("rejects a non-Admin session", async () => {
+      const focal = await createUserFixture();
+      await assignRole(focal.id, "FOCAL");
+      sessionState.current = { user: { id: focal.id } };
+      const semester = await createSemesterFixture();
+
+      const response = await deadlineRoute(jsonRequest({ documentDeadline: "2027-01-15" }), {
+        params: Promise.resolve({ id: semester.id }),
+      });
+      expect(response.status).toBe(403);
+    });
+
+    it("a non-existent semester returns 404, not a 500", async () => {
+      const admin = await createUserFixture();
+      await assignRole(admin.id, "ADMIN");
+      sessionState.current = { user: { id: admin.id } };
+
+      const response = await deadlineRoute(jsonRequest({ documentDeadline: "2027-01-15" }), {
+        params: Promise.resolve({ id: "00000000-0000-7000-8000-000000000000" }),
+      });
+      expect(response.status).toBe(404);
+    });
   });
 });

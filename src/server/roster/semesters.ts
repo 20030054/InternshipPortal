@@ -66,6 +66,26 @@ export async function closeSemester(semesterId: string): Promise<Semester> {
   });
 }
 
+/**
+ * OQ-01, answered: the deadline set at `createSemester()` time isn't
+ * final — an Admin can change it (or clear it back to unset) any time
+ * after, on any semester regardless of status. No status restriction
+ * deliberately: a deadline is metadata about the semester, not a
+ * state-machine transition, and BR-05's sweep (`deadline-sweep.ts`)
+ * already scopes itself to whichever semester is currently `OPEN` —
+ * editing a `CLOSED` or `UPCOMING` semester's deadline is inert until
+ * it's actually opened, same as setting one was at creation.
+ */
+export async function setSemesterDeadline(
+  semesterId: string,
+  documentDeadline: Date | null,
+): Promise<Semester> {
+  return prisma.semester.update({
+    where: { id: semesterId },
+    data: { documentDeadline },
+  });
+}
+
 /** M15: `/admin`'s own list — mirrors `GET /api/admin/semesters`'s
  * query exactly, factored out so the page can call it directly (the
  * established dashboard convention: a Server Component fetches via a

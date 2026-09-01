@@ -229,6 +229,20 @@ and a full 9-case suite for the new withdraw route
 source state, cross-student 404, past-approval 409, wrong-capability
 403, and unauthenticated 401.
 
+**Sixth pass, same session — OQ-01 answered:** the user's real answer
+— deadlines are Admin-entered when a semester (batch) is created, and
+must be changeable later — matched half of what already existed
+(creation-time entry, since M14) and added the missing half. Built
+`POST /api/admin/semesters/:id/deadline` and put it inline in the
+`/admin` semesters table (`EditDeadlineForm`, replacing what had been
+a read-only cell), editable regardless of semester status. Verified
+live: set a deadline on a `CLOSED` semester through the real route,
+confirmed it rendered on `/admin`, cleared it back to unset, confirmed
+the database reflects each step. `pnpm test` 242/242, `pnpm
+test:integration` 376/376 (6 new cases). See D-119; `docs/OPEN_
+QUESTIONS.md` OQ-01 is now the third resolved item, after OQ-12 and
+OQ-15.
+
 ### M14 — Hardening, backup and handover
 
 Implemented M14 in full per `/docs/modules/M14.md`. The single biggest
