@@ -129,3 +129,47 @@ export async function reactivateUser(userId: string): Promise<void> {
     data: { disabledAt: null },
   });
 }
+
+/**
+ * `createStaffUser()`'s own missing companion: a real account holding
+ * a second (or third) role — "the same Focal Person is also the HoD,"
+ * "make this Focal Person an Admin too" — had no path except
+ * re-creating the account under a different email, which `POST
+ * /api/admin/users` correctly refuses (`EmailAlreadyInUseError`) since
+ * that route is for genuinely new accounts. The schema itself never
+ * restricted this (`UserRole`'s own doc comment: "a user may hold
+ * multiple roles... enforced at the service layer, never by
+ * restricting which role combinations a user may hold," M01) — only
+ * the UI/route to change an *existing* account's roles was missing.
+ *
+ * Replace-all semantics, same as `setUserDepartments()`: the checked
+ * set is the complete set afterward, not an add-only operation — an
+ * Admin unchecking Focal Person here genuinely removes it. Excludes
+ * STUDENT for the same reason `createStaffUser()` does: roster import
+ * is the dedicated student path, with its own required fields
+ * (registrationNumber, admissionSemesterId) this route has no way to
+ * collect.
+ */
+const STAFF_ROLE_NAMES: readonly RoleName[] = ["FOCAL", "HOD", "DEAN", "ADMIN"];
+
+export async function setUserRoles(
+  userId: string,
+  roles: readonly RoleName[],
+): Promise<void> {
+  const roleRows = await Promise.all(
+    roles.map((roleName) => prisma.role.findUniqueOrThrow({ where: { name: roleName } })),
+  );
+  await prisma.$transaction([
+    // Scoped to the four staff roles specifically, not every UserRole
+    // row this user has — an account that also happens to hold
+    // STUDENT (the roster-import path, entirely separate from this
+    // route) must never lose it just because an Admin edited their
+    // staff roles here.
+    prisma.userRole.deleteMany({
+      where: { userId, role: { name: { in: [...STAFF_ROLE_NAMES] } } },
+    }),
+    prisma.userRole.createMany({
+      data: roleRows.map((role) => ({ userId, roleId: role.id })),
+    }),
+  ]);
+}

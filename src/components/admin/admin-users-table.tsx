@@ -6,6 +6,7 @@ import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { ActionForm } from "@/components/action-form";
 import { EditDepartmentsForm } from "@/components/admin/edit-departments-form";
+import { EditRolesForm } from "@/components/admin/edit-roles-form";
 
 /**
  * `"use client"` from the very first line, deliberately — this table's
@@ -29,12 +30,15 @@ const columns: ColumnDef<AdminUserRow, unknown>[] = [
     accessorKey: "roles",
     header: "Roles",
     cell: ({ row }) => (
-      <div className="flex flex-wrap gap-1">
-        {row.original.roles.map((role) => (
-          <Badge key={role} variant="deep">
-            {role}
-          </Badge>
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap gap-1">
+          {row.original.roles.map((role) => (
+            <Badge key={role} variant="deep">
+              {role}
+            </Badge>
+          ))}
+        </div>
+        <EditRolesForm userId={row.original.id} currentRoles={row.original.roles} />
       </div>
     ),
   },

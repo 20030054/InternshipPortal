@@ -27,3 +27,16 @@ export const createUserSchema = z.object({
   fullName: z.string().trim().min(1).max(200).optional(),
   departments: z.array(z.enum(DEPARTMENTS)).optional(),
 });
+
+/**
+ * `setUserRoles()`'s own schema — an *existing* account picking up (or
+ * dropping) a role, e.g. a Focal Person who's now also the HoD.
+ * Replace-all, same `.min(1)` floor as creation: an Admin wanting to
+ * remove every staff role from someone uses deactivation instead,
+ * which is the real "this account shouldn't work anymore" mechanism —
+ * an account with zero roles just sits in an odd in-between state
+ * this codebase has no other reason to support.
+ */
+export const updateUserRolesSchema = z.object({
+  roles: z.array(z.enum(STAFF_ROLES)).min(1),
+});

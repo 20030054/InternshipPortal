@@ -3006,3 +3006,34 @@ student. Full suite re-run clean at every stage: 399/399 with zero
 existing-test modifications before writing any new test (confirming
 the fixture-default strategy actually worked as designed), then
 409/409 after adding the 10 above.
+
+---
+
+### D-128 — 2026-09-01 — An existing staff account can pick up (or drop) a role
+
+**Decision:** `setUserRoles()` (`src/server/users/service.ts`),
+`POST /api/admin/users/:id/roles` (`updateUserRolesSchema`), and an
+inline "Roles" editor (checkboxes, replace-all, same UX as D-127's
+department editor) on `/admin`'s staff table. Scoped to only the four
+staff roles when deleting existing `UserRole` rows — an account that
+also happens to hold STUDENT (a separate, roster-import-owned
+concern) never loses it just because its staff roles were edited here.
+
+**Why:** the user hit `POST /api/admin/users`'s `EmailAlreadyInUseError`
+trying to make an existing Focal Person also a Dean/HoD/Admin — the
+*correct* response from that route (creating a second account under
+the same email was never the right fix, and the schema has never
+restricted multi-role accounts: `UserRole`'s own doc comment since M01,
+"a user may hold multiple roles... enforced at the service layer,
+never by restricting which role combinations a user may hold"). The
+real gap was narrower: `createStaffUser()` could set roles at
+creation, nothing could change them on an account that already
+existed. This is that missing companion, matching the exact shape
+`reactivateUser()` (D-124) already was for `deactivateUser()`.
+
+Verified (`M15_admin_user_roles.test.ts`, 5 cases): a Focal Person
+genuinely becomes Focal + HoD without a new account; replace-all
+actually drops a role that's unchecked; a STUDENT role on the same
+account survives an unrelated staff-role edit untouched; an empty
+array is rejected (400 — an account with zero staff roles is what
+deactivation is for, not this route); a non-Admin session gets 403.
