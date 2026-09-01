@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { initiateWaiverSchema } from "@/schemas/waivers";
 import {
   AlreadyHasActiveCaseError,
@@ -64,6 +65,8 @@ export async function POST(
       );
     }
 
+    await requireDepartmentAccess(identity, id);
+
     const result = await initiateWaiver({
       studentId: id,
       actor: { userId: identity.userId, roles: identity.roles },
@@ -74,6 +77,9 @@ export async function POST(
 
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     if (

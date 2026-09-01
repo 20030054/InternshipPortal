@@ -5,6 +5,7 @@ import {
   UnauthenticatedError,
 } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { prisma } from "@/server/db/client";
 import { getCaseSummaryData } from "@/server/exports/case-summary";
 import { renderCaseSummaryPdf } from "@/server/exports/case-summary-pdf";
@@ -44,6 +45,8 @@ export async function GET(
       if (student?.id !== kase.studentId) {
         return NextResponse.json({ error: "not_found" }, { status: 404 });
       }
+    } else {
+      await requireDepartmentAccess(identity, kase.studentId);
     }
 
     const data = await getCaseSummaryData(id);
@@ -60,6 +63,9 @@ export async function GET(
       },
     });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     throw err;

@@ -312,7 +312,9 @@ create a fresh account if someone genuinely needs to come back.
 
 **Importing students** (CSV; columns documented in
 `src/server/roster/csv-import.ts`'s own header comment — at minimum
-registration number, email, programme, admission semester):
+registration number, email, programme, admission semester, and
+department (CS/SE/AI/MBC — D-127, required: controls which Focal
+Person/HoD can see this student at all)):
 
 ```
 curl -X POST https://<APP_URL>/api/admin/roster/import \
@@ -511,3 +513,35 @@ curl -X POST https://<APP_URL>/api/admin/documents/archive/<archive-id>/confirm-
 All three are also available from `/admin`'s "Document retention"
 section, which shows step 2 as a Download link and step 3 behind a
 confirmation prompt.
+
+## 14. Department assignment (D-127)
+
+A Focal Person or HoD account with **no** department assigned sees
+zero cases and zero students — this is intentional (fail closed), not
+a bug, and the single most common setup step a real deployment forgets.
+
+**Assigning at account creation:** check one or more of CS/SE/AI/MBC
+in the "Departments" section of `CreateUserForm` on `/admin` (only
+meaningful when Focal Person or HoD is also checked).
+
+**Correcting an existing account's departments:**
+```
+curl -X POST https://<APP_URL>/api/admin/users/<user-id>/departments \
+  -H "Content-Type: application/json" -b "<admin's session cookie>" \
+  -d '{"departments": ["CS", "SE"]}'
+# an empty array un-assigns the account entirely
+```
+Or the "Departments" column on `/admin`'s staff table (Focal/HoD rows
+only) — replace-all semantics, whatever's checked when you save is the
+complete set afterward.
+
+**Correcting a student's department** (a wrong value on the roster
+CSV, a transfer between departments):
+```
+curl -X POST https://<APP_URL>/api/students/<student-id>/department \
+  -H "Content-Type: application/json" -b "<admin's session cookie>" \
+  -d '{"department": "SE"}'
+```
+
+Dean and Admin accounts are never department-scoped — see
+`docs/DECISIONS.md` D-127 for the full reasoning.

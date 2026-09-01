@@ -8,6 +8,7 @@ import {
   UnauthenticatedError,
 } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { prisma } from "@/server/db/client";
 
 /**
@@ -79,6 +80,8 @@ export async function GET(
         });
         return NextResponse.json({ error: "not_found" }, { status: 404 });
       }
+    } else {
+      await requireDepartmentAccess(identity, document.case.studentId);
     }
 
     // OQ-07, answered (D-123): the row survives forever (§9), but the
@@ -122,6 +125,9 @@ export async function GET(
       },
     });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     throw err;

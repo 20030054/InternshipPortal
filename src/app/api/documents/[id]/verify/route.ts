@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
+import { prisma } from "@/server/db/client";
 import { verifyDocumentSchema } from "@/schemas/grading";
 import { DocumentNotReadyForVerificationError, verifyDocument } from "@/server/grading/service";
 import { Prisma } from "@prisma/client";
@@ -28,6 +30,14 @@ export async function POST(
       );
     }
 
+    const document = await prisma.document.findUnique({
+      where: { id },
+      select: { case: { select: { studentId: true } } },
+    });
+    if (document) {
+      await requireDepartmentAccess(identity, document.case.studentId);
+    }
+
     const verification = await verifyDocument({
       documentId: id,
       method: parsed.data.method,
@@ -37,6 +47,9 @@ export async function POST(
 
     return NextResponse.json(verification, { status: 201 });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     if (err instanceof DocumentNotReadyForVerificationError) {

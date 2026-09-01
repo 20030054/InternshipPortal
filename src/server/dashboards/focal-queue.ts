@@ -1,4 +1,4 @@
-import type { CaseState } from "@prisma/client";
+import type { CaseState, Department } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { workingDaysElapsed } from "@/server/sla/focal-sla";
 import { listHolidayDateStrings } from "@/server/roster/holidays";
@@ -31,11 +31,20 @@ export type FocalQueueRow = {
  * regardless of raw age, since `workingDaysWaiting` already accounts
  * for weekends the same way BR-27's own escalation sweep does.
  */
-export async function getFocalWorkQueue(now: Date = new Date()): Promise<FocalQueueRow[]> {
+/** `departments`, when given, restricts the queue to only those
+ * departments' cases — see `src/server/authz/department-scope.ts`'s
+ * `allowedDepartmentsFor()`; omitted means unfiltered. */
+export async function getFocalWorkQueue(
+  now: Date = new Date(),
+  departments?: readonly Department[],
+): Promise<FocalQueueRow[]> {
   const slaDays = focalSlaDays();
   const holidays = await listHolidayDateStrings();
   const cases = await prisma.case.findMany({
-    where: { state: { in: [...FOCAL_PENDING_STATES] } },
+    where: {
+      state: { in: [...FOCAL_PENDING_STATES] },
+      ...(departments ? { student: { department: { in: [...departments] } } } : {}),
+    },
     select: {
       id: true,
       state: true,

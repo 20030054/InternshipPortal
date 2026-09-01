@@ -1,4 +1,4 @@
-import type { CaseState, RestartOutcome, WaiverOutcome } from "@prisma/client";
+import type { CaseState, Department, RestartOutcome, WaiverOutcome } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { computeEligibility, type SemesterFact } from "@/server/roster/eligibility";
 import { listWaivers } from "@/server/waivers/service";
@@ -63,11 +63,21 @@ async function studentNameByFailedCaseId(failedCaseId: string): Promise<string> 
   return kase ? (kase.student.user.fullName ?? kase.student.user.email) : "(unknown student)";
 }
 
-export async function getHodDashboard(): Promise<HodDashboard> {
+/** `departments`, when given, restricts every part of this dashboard to
+ * only those departments — see `src/server/authz/department-scope.ts`'s
+ * `allowedDepartmentsFor()`; omitted means unfiltered (DEAN/ADMIN, and
+ * the `/api/admin/analytics/export` route, which reuses this dashboard
+ * school-wide on purpose). */
+export async function getHodDashboard(departments?: readonly Department[]): Promise<HodDashboard> {
+  const departmentCaseFilter = departments
+    ? { student: { department: { in: [...departments] } } }
+    : {};
+  const departmentStudentFilter = departments ? { department: { in: [...departments] } } : {};
+
   const [stateCounts, candidates, pendingVerificationCases, rawWaivers, rawRestarts] = await Promise.all([
-    prisma.case.groupBy({ by: ["state"], _count: { _all: true } }),
+    prisma.case.groupBy({ by: ["state"], _count: { _all: true }, where: departmentCaseFilter }),
     prisma.student.findMany({
-      where: { cases: { none: {} } },
+      where: { cases: { none: {} }, ...departmentStudentFilter },
       select: {
         id: true,
         admissionSemesterId: true,
@@ -75,17 +85,17 @@ export async function getHodDashboard(): Promise<HodDashboard> {
       },
     }),
     prisma.case.findMany({
-      where: { state: "PENDING_VERIFICATION" },
+      where: { state: "PENDING_VERIFICATION", ...departmentCaseFilter },
       select: {
         id: true,
         student: { select: { user: { select: { email: true, fullName: true } } } },
         company: { select: { name: true } },
       },
     }),
-    listWaivers(),
-    listAllRestartRequests(),
+    listWaivers(departments),
+    listAllRestartRequests(departments),
   ]);
-  const deadlineMissed = await findDeadlineMissedCases();
+  const deadlineMissed = await findDeadlineMissedCases(new Date(), departments);
 
   const waivers: WaiverRow[] = await Promise.all(
     rawWaivers.map(async (w) => ({

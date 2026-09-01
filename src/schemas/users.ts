@@ -12,8 +12,18 @@ import { z } from "zod";
  */
 export const STAFF_ROLES = ["FOCAL", "HOD", "DEAN", "ADMIN"] as const;
 
+// D-127: department scoping — meaningful for FOCAL/HOD only, but the
+// field is accepted for any role set rather than conditionally
+// required, matching how loosely `roles` itself is validated (no
+// cross-field rule tying "roles includes FOCAL/HOD" to "departments
+// non-empty"; an Admin who forgets simply creates an account that
+// sees nothing until corrected, the same fail-closed default
+// `requireDepartmentAccess()` applies everywhere else).
+export const DEPARTMENTS = ["CS", "SE", "AI", "MBC"] as const;
+
 export const createUserSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   roles: z.array(z.enum(STAFF_ROLES)).min(1),
   fullName: z.string().trim().min(1).max(200).optional(),
+  departments: z.array(z.enum(DEPARTMENTS)).optional(),
 });

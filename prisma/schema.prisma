@@ -61,24 +61,25 @@ model User {
 
   student Student?
 
-  auditEvents          AuditEvent[]         @relation("AuditActor")
-  caseEventsActed      CaseEvent[]          @relation("CaseEventActor")
-  documentsUploaded    Document[]           @relation("DocumentUploadedBy")
-  progressLogEntries   ProgressLogEntry[]   @relation("ProgressLogEntryCreatedBy")
-  verificationsDone    Verification[]       @relation("VerificationVerifier")
-  gradesRecommended    Grade[]              @relation("GradeRecommendedBy")
-  gradesAwarded        Grade[]              @relation("GradeAwardedBy")
-  gradeReversalsSigned GradeReversal[]      @relation("GradeReversalDean")
-  restartFocalSigned   RestartRequest[]     @relation("RestartFocalSigner")
-  restartHodSigned     RestartRequest[]     @relation("RestartHodSigner")
-  waiverFocalSigned    Waiver[]             @relation("WaiverFocalSigner")
-  waiverHodSigned      Waiver[]             @relation("WaiverHodSigner")
-  waiverDeanSigned     Waiver[]             @relation("WaiverDeanSigner")
-  escalationsRuled     Escalation[]         @relation("EscalationDean")
-  roleAssignments      UserRole[]
-  passwordResetTokens  PasswordResetToken[]
-  rosterImports        RosterImport[]
-  documentArchives     DocumentArchive[]
+  auditEvents           AuditEvent[]         @relation("AuditActor")
+  caseEventsActed       CaseEvent[]          @relation("CaseEventActor")
+  documentsUploaded     Document[]           @relation("DocumentUploadedBy")
+  progressLogEntries    ProgressLogEntry[]   @relation("ProgressLogEntryCreatedBy")
+  verificationsDone     Verification[]       @relation("VerificationVerifier")
+  gradesRecommended     Grade[]              @relation("GradeRecommendedBy")
+  gradesAwarded         Grade[]              @relation("GradeAwardedBy")
+  gradeReversalsSigned  GradeReversal[]      @relation("GradeReversalDean")
+  restartFocalSigned    RestartRequest[]     @relation("RestartFocalSigner")
+  restartHodSigned      RestartRequest[]     @relation("RestartHodSigner")
+  waiverFocalSigned     Waiver[]             @relation("WaiverFocalSigner")
+  waiverHodSigned       Waiver[]             @relation("WaiverHodSigner")
+  waiverDeanSigned      Waiver[]             @relation("WaiverDeanSigner")
+  escalationsRuled      Escalation[]         @relation("EscalationDean")
+  roleAssignments       UserRole[]
+  passwordResetTokens   PasswordResetToken[]
+  rosterImports         RosterImport[]
+  documentArchives      DocumentArchive[]
+  departmentAssignments UserDepartment[]
 
   @@map("users")
 }
@@ -150,12 +151,52 @@ model UserRole {
 // Roster and calendar
 // ---------------------------------------------------------------------
 
+/**
+ * Department-scoped access, answered by the user (post-master-prompt,
+ * M15): Admin assigns each Focal Person and HoD to one or more
+ * departments; a Focal/HoD account with none assigned sees nothing —
+ * fail closed, not fail open, matching this codebase's own
+ * restrictive-default convention (the difference here is the user
+ * gave an explicit answer, not that this is a guess). Dean and Admin
+ * stay unscoped — the user's own request named only Focal and HoD.
+ * See `src/server/authz/department-scope.ts` and `docs/DECISIONS.md`
+ * D-127.
+ */
+enum Department {
+  CS
+  SE
+  AI
+  MBC
+}
+
+/// A Focal Person or HoD's department assignment(s) — many-to-many
+/// deliberately (a real school might cover a department short-staffed
+/// with more than one person, or one person covering two departments),
+/// Admin decides via `/admin`. Never touched for STUDENT/DEAN/ADMIN
+/// accounts.
+model UserDepartment {
+  userId     String     @map("user_id") @db.Uuid
+  department Department
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@id([userId, department])
+  @@map("user_departments")
+}
+
 model Student {
-  id                  String @id @default(uuid(7)) @db.Uuid
-  userId              String @unique @map("user_id") @db.Uuid
-  registrationNumber  String @unique @map("registration_number")
-  admissionSemesterId String @map("admission_semester_id") @db.Uuid
+  id                  String      @id @default(uuid(7)) @db.Uuid
+  userId              String      @unique @map("user_id") @db.Uuid
+  registrationNumber  String      @unique @map("registration_number")
+  admissionSemesterId String      @map("admission_semester_id") @db.Uuid
   programme           String
+  // Nullable deliberately: an unassigned student is invisible to every
+  // Focal/HoD (fail closed) rather than silently visible to whoever
+  // happens to have no restrictions — the same "no reasonable default,
+  // make it explicit" reasoning as OQ-01's deadline field before OQ-01
+  // was answered. Admin sets this at roster import (now a required
+  // column) or corrects it after via a dedicated route.
+  department          Department?
 
   user              User     @relation(fields: [userId], references: [id])
   admissionSemester Semester @relation(fields: [admissionSemesterId], references: [id])

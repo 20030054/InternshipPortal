@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { allowedDepartmentsFor } from "@/server/authz/department-scope";
 import { listWaivers } from "@/server/waivers/service";
 
 /** BR-24: "every waiver is surfaced permanently" — staff-only, reusing
@@ -12,9 +13,10 @@ import { listWaivers } from "@/server/waivers/service";
 export async function GET() {
   try {
     const rawIdentity = await getCurrentIdentity();
-    requireCapability(rawIdentity, "case.view_any");
+    const identity = requireCapability(rawIdentity, "case.view_any");
 
-    const waivers = await listWaivers();
+    const departments = await allowedDepartmentsFor(identity);
+    const waivers = await listWaivers(departments ?? undefined);
     return NextResponse.json(waivers);
   } catch (err) {
     const response = authzErrorResponse(err);

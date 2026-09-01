@@ -1,4 +1,4 @@
-import type { Case, Escalation, RestartRequest, RoleName } from "@prisma/client";
+import type { Case, Department, Escalation, RestartRequest, RoleName } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import {
   executeTransition,
@@ -343,6 +343,15 @@ export async function listRestartRequestsForCase(caseId: string): Promise<Restar
  * the master prompt only names waivers explicitly for permanent
  * dashboard visibility (BR-24), but §7's M13 summary lists "all
  * restarts" as its own department-view item alongside them. */
-export async function listAllRestartRequests(): Promise<RestartRequest[]> {
-  return prisma.restartRequest.findMany({ orderBy: { createdAt: "desc" } });
+/** `departments`, when given, restricts this to only those departments'
+ * restart requests — same department-scoping every other Focal/HoD-
+ * facing list route now applies (`allowedDepartmentsFor()`); omitted
+ * means unfiltered. */
+export async function listAllRestartRequests(
+  departments?: readonly Department[],
+): Promise<RestartRequest[]> {
+  return prisma.restartRequest.findMany({
+    where: departments ? { failedCase: { student: { department: { in: [...departments] } } } } : undefined,
+    orderBy: { createdAt: "desc" },
+  });
 }

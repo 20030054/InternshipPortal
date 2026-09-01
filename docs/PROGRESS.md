@@ -5,7 +5,7 @@
 complete.
 **Last session:** 2026-08-31
 **Build status:** green. `pnpm lint`, `pnpm exec tsc --noEmit`, `next
-build`, `pnpm test` [246/246], `pnpm test:integration` [399/399] all
+build`, `pnpm test` [248/248], `pnpm test:integration` [409/409] all
 pass, confirmed on multiple consecutive freshly-recreated temp Postgres/
 Redis runs. `pnpm audit` reports zero known vulnerabilities. A full,
 real `docker compose up --build` from a clean volume state (all 7
@@ -293,6 +293,43 @@ separately and narrowly). `pnpm test` 246/246, `pnpm test:integration`
 392/392 clean on the final fresh run, plus 4 more cases added after
 that (analytics) — see `docs/DECISIONS.md` D-120 through D-126 for the
 full reasoning behind each.
+
+**Eighth pass, same session — department-scoped access, a genuinely
+new feature, not another open question.** The user asked for CS/SE/AI/
+MBC departments, Admin assigning each Focal Person/HoD to one or more,
+and each of them seeing and controlling only their own department's
+students — a real access-control boundary, not a UI filter. Built as a
+*second*, additive check called after every existing capability check
+(`requireDepartmentAccess()`/`allowedDepartmentsFor()`,
+`src/server/authz/department-scope.ts`), fail-closed throughout — a
+Focal/HoD account with no department assigned, or a student with none
+set, sees nothing rather than everything. Touched roughly 20 routes
+where a Focal/HoD acts on a specific case/student, both dashboards
+(`/focal`, `/hod`, and the HoD export), and — found while implementing,
+not asked for directly but the correct consequence of the same rule —
+every role-targeted notification template (offer submitted, grade
+recommended, restart requested, waiver initiated, SLA escalation,
+...), centralized in one change to `resolveRecipients()` rather than
+touched per-template. Roster import now requires a `department`
+column; a wrong value or a transfer is corrected via a new Admin route.
+Dean and Admin stay unscoped, matching the user's own request, which
+named only Focal and HoD.
+
+The real risk in a change this size was regressing the ~50 pre-existing
+test files that assume any Focal/HoD can act on any case — solved by
+making the two shared test fixtures (`createStudentFixture()`,
+`assignRole()`) default every fixture into one shared "CS" department
+unless a test explicitly says otherwise, so nothing written before
+this feature existed needed to change. Verified true the responsible
+way: ran the complete existing suite unmodified *before* writing a
+single new test, confirmed 399/399 still passed, then added 10 new
+tests specifically proving the isolation itself holds (a CS-only Focal
+Person genuinely 404s on an SE case, a Dean doesn't, both dashboards'
+department filters genuinely exclude the other department, the
+Admin-facing assignment/correction routes work) and re-ran the whole
+suite clean again. `pnpm test` 248/248, `pnpm test:integration`
+409/409 (399 pre-existing + 10 new). See `docs/DECISIONS.md` D-127 for the full reasoning and
+`docs/RUNBOOK.md` §14 for the operator flow.
 
 ### M14 — Hardening, backup and handover
 

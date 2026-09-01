@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
+import { prisma } from "@/server/db/client";
 import { markVerified } from "@/server/grading/service";
 import {
   CaseNotFoundError,
@@ -24,6 +26,11 @@ export async function POST(
     const rawIdentity = await getCurrentIdentity();
     const identity = requireCapability(rawIdentity, "deliverable.verify");
 
+    const kase = await prisma.case.findUnique({ where: { id }, select: { studentId: true } });
+    if (kase) {
+      await requireDepartmentAccess(identity, kase.studentId);
+    }
+
     const updated = await markVerified({
       caseId: id,
       actor: { userId: identity.userId, roles: identity.roles },
@@ -31,6 +38,9 @@ export async function POST(
 
     return NextResponse.json(updated);
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     if (

@@ -5,6 +5,7 @@ import {
   UnauthenticatedError,
 } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { prisma } from "@/server/db/client";
 import { computeEligibility } from "@/server/roster/eligibility";
 import { isGraduationEligible } from "@/server/roster/graduation";
@@ -52,6 +53,9 @@ export async function GET(
     if (ownershipRequired && student.userId !== identity.userId) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
+    if (!ownershipRequired) {
+      await requireDepartmentAccess(identity, student.id);
+    }
 
     const semesters = await prisma.semester.findMany({
       select: { id: true, sequenceNumber: true, status: true },
@@ -61,6 +65,9 @@ export async function GET(
     const graduationEligible = await isGraduationEligible(student.id);
     return NextResponse.json({ ...result, isGraduationEligible: graduationEligible });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     throw err;

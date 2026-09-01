@@ -9,15 +9,49 @@ import {
   type TemplateContext,
 } from "./templates";
 
-/** Every user currently holding `role` — no per-case assignment exists
- * anywhere in this schema, so a role-targeted notification always means
- * "everyone with the role." See docs/modules/M12.md "Scope decisions." */
+/** Every user currently holding `role` — originally "no per-case
+ * assignment exists anywhere in this schema, so a role-targeted
+ * notification always means 'everyone with the role'" (M12); no
+ * longer quite true since department scoping (M15, D-127) — this
+ * function itself stays role-only (still used for DEAN, which stays
+ * unscoped, and for callers that genuinely want every holder), but
+ * `resolveRecipients()` below narrows FOCAL/HOD role rules by the
+ * case's own department before calling this. */
 export async function usersWithRole(role: RoleName): Promise<{ id: string; email: string }[]> {
   const rows = await prisma.userRole.findMany({
     where: { role: { name: role } },
     select: { user: { select: { id: true, email: true } } },
   });
   return rows.map((r) => r.user);
+}
+
+const DEPARTMENT_SCOPED_ROLES: readonly RoleName[] = ["FOCAL", "HOD"];
+
+/** Narrows a role-targeted recipient list to just the users assigned
+ * to `caseId`'s own department (D-127) — a no-op for any role other
+ * than FOCAL/HOD (DEAN stays school-wide) and for a case whose student
+ * has no department (fails closed to nobody, same as
+ * `requireDepartmentAccess()`'s own default, rather than silently
+ * notifying everyone). */
+async function narrowToCaseDepartment(
+  role: RoleName,
+  caseId: string,
+  users: { id: string; email: string }[],
+): Promise<{ id: string; email: string }[]> {
+  if (!DEPARTMENT_SCOPED_ROLES.includes(role)) return users;
+
+  const kase = await prisma.case.findUnique({
+    where: { id: caseId },
+    select: { student: { select: { department: true } } },
+  });
+  if (!kase?.student.department) return [];
+
+  const assigned = await prisma.userDepartment.findMany({
+    where: { department: kase.student.department, userId: { in: users.map((u) => u.id) } },
+    select: { userId: true },
+  });
+  const assignedIds = new Set(assigned.map((a) => a.userId));
+  return users.filter((u) => assignedIds.has(u.id));
 }
 
 async function studentEmailForCase(caseId: string): Promise<{ id: string; email: string } | null> {
@@ -38,7 +72,8 @@ async function resolveRecipients(
       const student = await studentEmailForCase(caseId);
       if (student) out.push(student);
     } else {
-      out.push(...(await usersWithRole(rule.role)));
+      const roleUsers = await usersWithRole(rule.role);
+      out.push(...(await narrowToCaseDepartment(rule.role, caseId, roleUsers)));
     }
   }
   return out;

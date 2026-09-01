@@ -1,4 +1,4 @@
-import type { Case, CaseState, RoleName, Waiver } from "@prisma/client";
+import type { Case, CaseState, Department, RoleName, Waiver } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { executeTransition } from "@/server/state-machine/executor";
 import type { TransitionActor } from "@/server/state-machine/types";
@@ -240,6 +240,14 @@ export async function denyWaiverAtDean(input: {
 
 /** BR-24: staff-only visibility list. Full dashboard/annual-report
  * aggregation is M13's job — see docs/modules/M11.md "Scope decisions." */
-export async function listWaivers(): Promise<Waiver[]> {
-  return prisma.waiver.findMany({ orderBy: { createdAt: "asc" } });
+/** `departments`, when given, restricts this to only those departments'
+ * waivers — same department-scoping every other Focal/HoD-facing list
+ * route now applies (`allowedDepartmentsFor()`); omitted means
+ * unfiltered (BR-24: "every waiver is surfaced permanently" — still
+ * true for DEAN, who stays unscoped). */
+export async function listWaivers(departments?: readonly Department[]): Promise<Waiver[]> {
+  return prisma.waiver.findMany({
+    where: departments ? { student: { department: { in: [...departments] } } } : undefined,
+    orderBy: { createdAt: "asc" },
+  });
 }

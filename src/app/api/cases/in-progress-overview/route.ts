@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { allowedDepartmentsFor } from "@/server/authz/department-scope";
 import { listInProgressOverview } from "@/server/progress/service";
 
 /** MASTER_PROMPT.md's "Focal Person overview of all in-progress
@@ -11,9 +12,10 @@ import { listInProgressOverview } from "@/server/progress/service";
 export async function GET() {
   try {
     const rawIdentity = await getCurrentIdentity();
-    requireCapability(rawIdentity, "case.view_any");
+    const identity = requireCapability(rawIdentity, "case.view_any");
 
-    const overview = await listInProgressOverview();
+    const departments = await allowedDepartmentsFor(identity);
+    const overview = await listInProgressOverview(departments ?? undefined);
     return NextResponse.json(overview);
   } catch (err) {
     const response = authzErrorResponse(err);

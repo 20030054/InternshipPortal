@@ -1,4 +1,4 @@
-import type { RoleName } from "@prisma/client";
+import type { Department, RoleName } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { issuePasswordResetToken } from "@/server/auth/password-reset";
 import { staffWelcomeEmail } from "@/server/mail/staff-welcome-email";
@@ -40,6 +40,10 @@ export async function createStaffUser(input: {
   email: string;
   roles: readonly RoleName[];
   fullName?: string;
+  // D-127: department scoping — only meaningful for FOCAL/HOD, but
+  // accepted regardless and simply unused otherwise (mirrors how
+  // `roles` itself accepts a set that could be empty of scoped roles).
+  departments?: readonly Department[];
 }): Promise<{ id: string; email: string; roles: RoleName[]; emailSent: boolean }> {
   const existing = await prisma.user.findUnique({ where: { email: input.email } });
   if (existing) {
@@ -57,6 +61,11 @@ export async function createStaffUser(input: {
     await tx.userRole.createMany({
       data: roleRows.map((role) => ({ userId: created.id, roleId: role.id })),
     });
+    if (input.departments && input.departments.length > 0) {
+      await tx.userDepartment.createMany({
+        data: input.departments.map((department) => ({ userId: created.id, department })),
+      });
+    }
     return created;
   });
 

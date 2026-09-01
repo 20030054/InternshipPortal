@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { findStudentByRegistrationNumber } from "@/server/students/lookup";
 
 /** `waiver.initiate` (FOCAL) — the narrowest capability that
@@ -11,8 +12,8 @@ import { findStudentByRegistrationNumber } from "@/server/students/lookup";
  * says doesn't exist. */
 export async function GET(request: Request) {
   try {
-    const identity = await getCurrentIdentity();
-    requireCapability(identity, "waiver.initiate");
+    const rawIdentity = await getCurrentIdentity();
+    const identity = requireCapability(rawIdentity, "waiver.initiate");
 
     const registrationNumber = new URL(request.url).searchParams.get("registrationNumber");
     if (!registrationNumber) {
@@ -23,9 +24,13 @@ export async function GET(request: Request) {
     if (!student) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
+    await requireDepartmentAccess(identity, student.id);
 
     return NextResponse.json(student);
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     throw err;

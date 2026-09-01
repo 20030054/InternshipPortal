@@ -52,9 +52,9 @@ describe("M03: POST /api/admin/roster/import", () => {
     });
 
     const csv = [
-      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear",
-      `M03IMP-001,m03imp001@example.test,BS Computer Science,FALL,${semester.year}`,
-      `M03IMP-002,m03imp002@example.test,BS Software Engineering,FALL,${semester.year}`,
+      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear,department",
+      `M03IMP-001,m03imp001@example.test,BS Computer Science,FALL,${semester.year},CS`,
+      `M03IMP-002,m03imp002@example.test,BS Software Engineering,FALL,${semester.year},SE`,
     ].join("\n");
 
     const first = await POST(csvRequest(csv, "roster-1.csv"));
@@ -96,8 +96,8 @@ describe("M03: POST /api/admin/roster/import", () => {
 
     const semester = await createSemesterFixture({ type: "SPRING", year: 9002 });
     const csv = [
-      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear",
-      `M03CRED-001,m03cred001@example.test,BS Computer Science,SPRING,${semester.year}`,
+      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear,department",
+      `M03CRED-001,m03cred001@example.test,BS Computer Science,SPRING,${semester.year},CS`,
     ].join("\n");
 
     const first = await POST(csvRequest(csv, "roster-cred-1.csv"));
@@ -134,8 +134,8 @@ describe("M03: POST /api/admin/roster/import", () => {
     sessionState.current = { user: { id: admin.id } };
 
     const csv = [
-      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear",
-      "M03IMP-999,m03imp999@example.test,BS Computer Science,FALL,1899",
+      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear,department",
+      "M03IMP-999,m03imp999@example.test,BS Computer Science,FALL,1899,CS",
     ].join("\n");
 
     const response = await POST(csvRequest(csv));

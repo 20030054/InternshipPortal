@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { allowedDepartmentsFor } from "@/server/authz/department-scope";
 import { getHodDashboard } from "@/server/dashboards/hod-view";
 import { buildHodDepartmentWorkbook } from "@/server/exports/hod-department-xlsx";
 
@@ -9,10 +10,11 @@ import { buildHodDepartmentWorkbook } from "@/server/exports/hod-department-xlsx
  * spreadsheet. MASTER_PROMPT.md §7: "Exports to XLSX and PDF." */
 export async function GET() {
   try {
-    const identity = await getCurrentIdentity();
-    requireCapability(identity, "dashboard.view_hod");
+    const rawIdentity = await getCurrentIdentity();
+    const identity = requireCapability(rawIdentity, "dashboard.view_hod");
 
-    const dashboard = await getHodDashboard();
+    const departments = await allowedDepartmentsFor(identity);
+    const dashboard = await getHodDashboard(departments ?? undefined);
     const buffer = await buildHodDepartmentWorkbook(dashboard);
 
     return new NextResponse(new Uint8Array(buffer), {

@@ -5,6 +5,7 @@ import {
   requireCapability,
   UnauthenticatedError,
 } from "@/server/authz/require-capability";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { prisma } from "@/server/db/client";
 
 /**
@@ -61,6 +62,9 @@ export async function GET(
     if (ownershipRequired && student.userId !== identity.userId) {
       return NextResponse.json({ error: "not_found" }, { status: 404 });
     }
+    if (!ownershipRequired) {
+      await requireDepartmentAccess(identity, student.id);
+    }
 
     // userId is deliberately not in the response — it's an internal
     // linkage column, not something a caller needs back.
@@ -71,6 +75,9 @@ export async function GET(
       admissionSemesterId: student.admissionSemesterId,
     });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     if (err instanceof UnauthenticatedError) {
       return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
     }

@@ -109,7 +109,8 @@ export function RosterImportForm() {
       <CardTitle>Import roster (CSV)</CardTitle>
       <p className="mt-1 text-sm text-muted">
         Columns: registrationNumber, email, programme, admissionSemesterType,
-        admissionSemesterYear, and optionally fullName. The referenced semester must already
+        admissionSemesterYear, department (CS/SE/AI/MBC — D-127, controls which Focal Person/HoD
+        can see this student), and optionally fullName. The referenced semester must already
         exist below.
       </p>
       <form onSubmit={handleSubmit} className="mt-3 flex flex-col gap-3">

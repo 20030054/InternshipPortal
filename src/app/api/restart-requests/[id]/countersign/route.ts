@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
+import { prisma } from "@/server/db/client";
 import { restartCountersignSchema } from "@/schemas/restart";
 import {
   countersignRestart,
@@ -37,6 +39,14 @@ export async function POST(
       );
     }
 
+    const request_ = await prisma.restartRequest.findUnique({
+      where: { id },
+      select: { failedCase: { select: { studentId: true } } },
+    });
+    if (request_) {
+      await requireDepartmentAccess(identity, request_.failedCase.studentId);
+    }
+
     const result = await countersignRestart({
       requestId: id,
       actor: { userId: identity.userId, roles: identity.roles },
@@ -46,6 +56,9 @@ export async function POST(
 
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     if (err instanceof MissingOverrideAcknowledgementError) {

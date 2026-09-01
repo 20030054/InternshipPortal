@@ -1,6 +1,6 @@
 import { parse } from "csv-parse/sync";
 import { prisma } from "@/server/db/client";
-import type { Prisma, SemesterType } from "@prisma/client";
+import type { Department, Prisma, SemesterType } from "@prisma/client";
 import { generateStudentPassword } from "./credentials";
 import { hashPassword } from "@/server/auth/password";
 
@@ -8,12 +8,21 @@ import { hashPassword } from "@/server/auth/password";
  * BR-01/OQ-06: roster import, CSV only for now (the restrictive default
  * — see docs/modules/M03.md). Expected columns:
  * registrationNumber, email, programme, admissionSemesterType,
- * admissionSemesterYear, plus an optional fullName (M08: no field
- * anywhere stored a student's display name before the public supervisor
- * evaluation page needed one — see docs/modules/M08.md — added as
- * optional rather than required so an existing roster file without this
- * column still imports cleanly; missing fullName just means the
- * fallback display, the student's registrationNumber, keeps being used).
+ * admissionSemesterYear, department, plus an optional fullName (M08: no
+ * field anywhere stored a student's display name before the public
+ * supervisor evaluation page needed one — see docs/modules/M08.md —
+ * added as optional rather than required so an existing roster file
+ * without this column still imports cleanly; missing fullName just
+ * means the fallback display, the student's registrationNumber, keeps
+ * being used).
+ *
+ * `department` (D-127) is required, unlike `fullName` — a student
+ * imported with no department is invisible to every Focal/HoD (fail
+ * closed, `requireDepartmentAccess()`), a silent gap that's better
+ * caught at import time than discovered later as "why can't the Focal
+ * Person see this student." Admin can still correct it after the fact
+ * via `POST /api/students/:id/department` if a row was wrong.
+ *
  * The semester referenced must already exist (created via the
  * semester-configuration route) — import never invents a semester on
  * the fly.
@@ -25,7 +34,10 @@ const REQUIRED_COLUMNS = [
   "programme",
   "admissionSemesterType",
   "admissionSemesterYear",
+  "department",
 ] as const;
+
+const VALID_DEPARTMENTS = ["CS", "SE", "AI", "MBC"] as const;
 
 export type RowError = { row: number; message: string };
 
@@ -35,6 +47,7 @@ export type RosterRow = {
   programme: string;
   admissionSemesterType: SemesterType;
   admissionSemesterYear: number;
+  department: Department;
   fullName: string | null;
 };
 
@@ -109,6 +122,15 @@ export function parseRosterCsv(content: string): {
       return;
     }
 
+    const department = record.department!.trim().toUpperCase();
+    if (!VALID_DEPARTMENTS.includes(department as (typeof VALID_DEPARTMENTS)[number])) {
+      errors.push({
+        row: rowNumber,
+        message: `department "${record.department}" must be one of ${VALID_DEPARTMENTS.join(", ")}`,
+      });
+      return;
+    }
+
     seenRegistrationNumbers.add(registrationNumber);
     rows.push({
       registrationNumber,
@@ -116,6 +138,7 @@ export function parseRosterCsv(content: string): {
       programme: record.programme!.trim(),
       admissionSemesterType: type,
       admissionSemesterYear: year,
+      department: department as Department,
       fullName: record.fullName?.trim() || null,
     });
   });
@@ -215,12 +238,14 @@ export async function importRoster(
           userId: user.id,
           admissionSemesterId: semester.id,
           programme: row.programme,
+          department: row.department,
         },
         create: {
           userId: user.id,
           registrationNumber: row.registrationNumber,
           admissionSemesterId: semester.id,
           programme: row.programme,
+          department: row.department,
         },
       });
 

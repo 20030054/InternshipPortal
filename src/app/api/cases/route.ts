@@ -3,6 +3,7 @@ import type { CaseState } from "@prisma/client";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { allowedDepartmentsFor } from "@/server/authz/department-scope";
 import { prisma } from "@/server/db/client";
 import {
   AlreadyHasActiveCaseError,
@@ -80,7 +81,7 @@ export async function POST() {
 export async function GET(request: Request) {
   try {
     const rawIdentity = await getCurrentIdentity();
-    requireCapability(rawIdentity, "case.view_any");
+    const identity = requireCapability(rawIdentity, "case.view_any");
 
     const url = new URL(request.url);
     const stateParam = url.searchParams.get("state");
@@ -91,8 +92,12 @@ export async function GET(request: Request) {
       );
     }
 
+    const departments = await allowedDepartmentsFor(identity);
     const cases = await prisma.case.findMany({
-      where: stateParam ? { state: stateParam as CaseState } : {},
+      where: {
+        ...(stateParam ? { state: stateParam as CaseState } : {}),
+        ...(departments ? { student: { department: { in: [...departments] } } } : {}),
+      },
       orderBy: { createdAt: "asc" },
     });
     return NextResponse.json(cases);

@@ -15,6 +15,7 @@ export type AdminUserRow = {
   email: string;
   fullName: string | null;
   roles: string[];
+  departments: string[];
   disabledAt: Date | null;
   createdAt: Date;
 };
@@ -32,6 +33,7 @@ export async function listStaffUsers(): Promise<AdminUserRow[]> {
       disabledAt: true,
       createdAt: true,
       roleAssignments: { select: { role: { select: { name: true } } } },
+      departmentAssignments: { select: { department: true } },
     },
   });
 
@@ -40,6 +42,7 @@ export async function listStaffUsers(): Promise<AdminUserRow[]> {
     email: user.email,
     fullName: user.fullName,
     roles: user.roleAssignments.map((assignment) => assignment.role.name),
+    departments: user.departmentAssignments.map((a) => a.department),
     disabledAt: user.disabledAt,
     createdAt: user.createdAt,
   }));

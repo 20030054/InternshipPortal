@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
+import { prisma } from "@/server/db/client";
 import { waiverDecisionSchema } from "@/schemas/waivers";
 import { denyWaiverAtHod, WaiverNotInProgressError } from "@/server/waivers/service";
 import {
@@ -33,6 +35,11 @@ export async function POST(
       );
     }
 
+    const waiverRow = await prisma.waiver.findUnique({ where: { id }, select: { studentId: true } });
+    if (waiverRow) {
+      await requireDepartmentAccess(identity, waiverRow.studentId);
+    }
+
     const waiver = await denyWaiverAtHod({
       waiverId: id,
       actor: { userId: identity.userId, roles: identity.roles },
@@ -41,6 +48,9 @@ export async function POST(
 
     return NextResponse.json(waiver);
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     if (

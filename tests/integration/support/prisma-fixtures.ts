@@ -2,10 +2,22 @@ import { randomUUID } from "node:crypto";
 import { prisma } from "@/server/db/client";
 import type {
   CaseState,
+  Department,
   RoleName,
   SemesterStatus,
   SemesterType,
 } from "@prisma/client";
+
+/**
+ * D-127's default department for every fixture that doesn't say
+ * otherwise — chosen once so `createStudentFixture()` and
+ * `assignRole()`'s own FOCAL/HOD auto-assignment always agree, keeping
+ * the ~50 pre-existing test files that predate department scoping
+ * working completely unmodified. Tests that specifically exercise
+ * cross-department isolation call `assignDepartments()` explicitly
+ * with a *different* department (e.g. "SE") to prove it.
+ */
+const DEFAULT_TEST_DEPARTMENT: Department = "CS";
 
 /**
  * Fixture builders using the app's own Prisma client (the scit_app
@@ -98,7 +110,11 @@ export async function createClosedSemesterChain(
 }
 
 export async function createStudentFixture(
-  overrides: { userId?: string; admissionSemesterId?: string } = {},
+  overrides: {
+    userId?: string;
+    admissionSemesterId?: string;
+    department?: Department | null;
+  } = {},
 ) {
   const userId = overrides.userId ?? (await createUserFixture()).id;
   const admissionSemesterId =
@@ -109,6 +125,13 @@ export async function createStudentFixture(
       registrationNumber: `TEST-${randomUUID()}`,
       admissionSemesterId,
       programme: "BS Computer Science",
+      // D-127: defaults to CS, not null -- an unassigned student is
+      // invisible to every Focal/HoD fixture (fail closed), which
+      // would silently break the ~50 pre-existing tests that predate
+      // department scoping and never opted into it. Pass
+      // `department: null` explicitly for a test that specifically
+      // wants an unassigned student.
+      department: overrides.department === undefined ? DEFAULT_TEST_DEPARTMENT : overrides.department,
     },
   });
 }
@@ -168,4 +191,34 @@ export async function assignRole(userId: string, roleName: RoleName) {
     update: {},
     create: { userId, roleId: role.id },
   });
+
+  // D-127: a FOCAL/HOD fixture with zero department assignments sees
+  // nothing (fail closed) -- auto-assigning the same default
+  // `createStudentFixture()` uses is what keeps every pre-existing
+  // test in this suite working unmodified. Only when *none* exist
+  // yet, so a test that already called `assignDepartments()` first
+  // (or will call it after, since that's replace-all) is never
+  // silently overridden here.
+  if (roleName === "FOCAL" || roleName === "HOD") {
+    const existing = await prisma.userDepartment.findFirst({ where: { userId } });
+    if (!existing) {
+      await prisma.userDepartment.create({
+        data: { userId, department: DEFAULT_TEST_DEPARTMENT },
+      });
+    }
+  }
+}
+
+/** Explicit override for tests proving cross-department isolation —
+ * replace-all, same semantics as the real `setUserDepartments()`
+ * (`src/server/departments/service.ts`) this mirrors. Call *after*
+ * `assignRole()` if the goal is to override its own CS default (an
+ * empty array is valid and meaningful: it un-assigns entirely). */
+export async function assignDepartments(userId: string, departments: readonly Department[]) {
+  await prisma.$transaction([
+    prisma.userDepartment.deleteMany({ where: { userId } }),
+    prisma.userDepartment.createMany({
+      data: departments.map((department) => ({ userId, department })),
+    }),
+  ]);
 }

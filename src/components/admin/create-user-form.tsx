@@ -37,6 +37,20 @@ export function CreateUserForm() {
               <CheckboxField label="Admin" name="roles" value="ADMIN" />
             </div>
           </fieldset>
+          <fieldset className="flex flex-col gap-2">
+            <legend className="text-sm font-medium text-deep">Departments</legend>
+            <p className="text-xs text-muted">
+              Only matters for Focal Person / HoD — which students they can see and act on
+              (D-127). Leave unchecked for Dean/Admin, or if you&apos;re not ready to assign one
+              yet (a Focal/HoD account with none sees nothing until corrected here later).
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <CheckboxField label="CS" name="departments" value="CS" />
+              <CheckboxField label="SE" name="departments" value="SE" />
+              <CheckboxField label="AI" name="departments" value="AI" />
+              <CheckboxField label="MBC" name="departments" value="MBC" />
+            </div>
+          </fieldset>
         </div>
       </ActionForm>
     </Card>

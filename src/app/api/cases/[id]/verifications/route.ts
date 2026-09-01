@@ -5,6 +5,7 @@ import {
   UnauthenticatedError,
 } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
 import { prisma } from "@/server/db/client";
 import { listVerificationsForCase } from "@/server/grading/service";
 
@@ -45,11 +46,16 @@ export async function GET(
       if (student?.id !== kase.studentId) {
         return NextResponse.json({ error: "not_found" }, { status: 404 });
       }
+    } else {
+      await requireDepartmentAccess(identity, kase.studentId);
     }
 
     const verifications = await listVerificationsForCase(id);
     return NextResponse.json(verifications);
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     throw err;

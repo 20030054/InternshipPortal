@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
+import { allowedDepartmentsFor } from "@/server/authz/department-scope";
 import { getFocalWorkQueue } from "@/server/dashboards/focal-queue";
 import { FocalQueueTable } from "@/components/focal-queue-table";
 
@@ -17,7 +18,8 @@ export default async function FocalQueuePage() {
     redirect("/login");
   }
 
-  const queue = await getFocalWorkQueue();
+  const departments = await allowedDepartmentsFor(identity);
+  const queue = await getFocalWorkQueue(undefined, departments ?? undefined);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-6 px-6 py-10">

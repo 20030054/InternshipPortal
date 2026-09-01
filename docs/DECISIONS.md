@@ -2916,3 +2916,93 @@ reason); `roster.totalStudents` increases by exactly one for one real
 student created between two calls (safe under this suite's own
 `fileParallelism: false` guarantee); the export route returns a real
 `.xlsx` for an Admin and 403s for a non-Admin.
+
+---
+
+### D-127 — 2026-09-01 — Department-scoped access for Focal Persons and HoDs
+
+**Decision:** Four departments (CS, SE, AI, MBC), a new `Department`
+enum. `Student.department` (nullable — an unassigned student is
+invisible to every Focal/HoD, fail closed). A new `UserDepartment`
+join table (many-to-many: one Focal/HoD account can cover more than
+one department, Admin decides). `requireDepartmentAccess()`
+(`src/server/authz/department-scope.ts`) is a second, additive check
+called after `requireCapability()` in every route where a Focal/HoD
+touches a specific student/case — roughly 20 routes: approve/reject,
+supervisor-token, deliverable verify/mark-verified, recommend/award
+grade, restart request/countersign/deny, waiver initiate/countersign/
+hod-deny, case detail, document download, students/:id (+
+eligibility), students/lookup, case verifications/restart-requests/
+summary-pdf/evaluation, `GET /api/cases`, `GET /api/waivers`,
+`in-progress-overview`. `allowedDepartmentsFor()` is the list-query
+counterpart, threaded into `/focal`'s work queue, `/hod`'s dashboard
+(and its XLSX export), and BR-05's deadline-missed view. Both throw/
+return based on the same rule: a Focal/HoD identity with zero
+department assignments (or a student with no department set) is
+treated as having access to nothing — never silently unrestricted.
+Dean and Admin are never scoped — the user's own request named only
+Focal and HoD.
+
+**Why a second check, not folded into the capability matrix:**
+`rolesGrantCapability()` (`matrix.ts`) answers "can this *role* ever do
+X" — a fixed, role-shaped, I/O-free question by design. Department
+membership is a per-account, per-student fact that needs a database
+lookup, the same shape `case.view_own`'s existing ownership check
+already has one level down (this account's own case) — department
+scoping is that same pattern one level up (this account's assigned
+department). `DepartmentAccessDeniedError` is a distinct error class,
+mapped by every route to a genuine 404, not 403 — the same "an
+out-of-scope resource doesn't even reveal it exists" stance every
+ownership check in this codebase already takes (D-004/§9): a CS-only
+Focal Person querying an SE case gets exactly the same response as
+one that doesn't exist.
+
+**Why notification routing changed too:** `resolveRecipients()`
+(`src/server/notifications/service.ts`), the single shared mechanism
+behind every role-targeted notification (offer submitted, docs
+received, grade recommended, restart requested, waiver initiated,
+deadline missed, SLA escalation, supervisor unresponsive), now narrows
+a FOCAL/HOD role rule to only the users assigned to *that case's own*
+department before sending — one centralized change that correctly
+scopes every one of those templates at once, not just the SLA
+escalation the user specifically asked about. `runHodDigest()`'s
+periodic summary email is a deliberate exception, staying school-wide:
+splitting a single aggregate count into a per-department digest is a
+larger restructuring this pass didn't take on, and a digest email
+(unlike a case-specific action) isn't the kind of resource §9's
+privacy stance is about.
+
+**Why the ~50 pre-existing test files needed zero changes:**
+`createStudentFixture()` now defaults to department CS, and
+`assignRole()` auto-assigns a FOCAL/HOD fixture to CS too, but only
+when it doesn't already have any department (so a test that calls
+`assignDepartments()` — the new fixture helper, replace-all, mirrors
+the real `setUserDepartments()` — either before or after `assignRole()`
+is never silently overridden). Every test written before this feature
+existed, and every one written since that doesn't care about
+departments specifically, transparently operates in one shared "CS"
+department and keeps passing — verified by running the complete
+existing suite unmodified before writing a single new test for this
+feature and confirming 399/399 still passed.
+
+**Why roster import now requires a `department` column:** an imported
+student with no department is invisible to every Focal/HoD — a silent
+configuration gap far better caught at import time (`REQUIRED_COLUMNS`,
+row-level validation) than discovered later as "why can't the Focal
+Person see this student." `POST /api/students/:id/department` is the
+correction path for a wrong value or a transfer.
+
+Verified live: 5 new isolation tests
+(`M15_department_isolation.test.ts`) proving a CS-only Focal Person
+gets 404 for an SE case while a Dean gets 200 for the same case;
+assigning that Focal Person to SE turns the same 404 into a 200; a
+student with no department is invisible to Focal, visible to Dean;
+`getFocalWorkQueue()`'s department filter genuinely excludes another
+department's case; `getHodDashboard()`'s does too. 5 more
+(`M15_admin_departments.test.ts`) for the Admin-facing assignment/
+correction routes: set-then-replace, empty-array un-assigns, 403 for
+non-Admin, student department correction, 404 for a non-existent
+student. Full suite re-run clean at every stage: 399/399 with zero
+existing-test modifications before writing any new test (confirming
+the fixture-default strategy actually worked as designed), then
+409/409 after adding the 10 above.

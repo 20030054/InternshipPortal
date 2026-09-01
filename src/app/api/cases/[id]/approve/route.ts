@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
 import { authzErrorResponse } from "@/server/authz/error-response";
+import { DepartmentAccessDeniedError, requireDepartmentAccess } from "@/server/authz/department-scope";
+import { prisma } from "@/server/db/client";
 import { approveOfferSchema } from "@/schemas/offers";
 import { approveOffer } from "@/server/offers/service";
 import {
@@ -35,6 +37,15 @@ export async function POST(
       );
     }
 
+    // A missing case still falls through to approveOffer() below,
+    // which throws CaseNotFoundError -> the existing 409 mapping,
+    // unchanged; department scoping only applies once a real case is
+    // confirmed to exist.
+    const kase = await prisma.case.findUnique({ where: { id }, select: { studentId: true } });
+    if (kase) {
+      await requireDepartmentAccess(identity, kase.studentId);
+    }
+
     const updated = await approveOffer({
       caseId: id,
       actor: { userId: identity.userId, roles: identity.roles },
@@ -46,6 +57,9 @@ export async function POST(
 
     return NextResponse.json(updated);
   } catch (err) {
+    if (err instanceof DepartmentAccessDeniedError) {
+      return NextResponse.json({ error: "not_found" }, { status: 404 });
+    }
     const response = authzErrorResponse(err);
     if (response) return response;
     if (

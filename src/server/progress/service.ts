@@ -1,4 +1,4 @@
-import type { Case, RoleName } from "@prisma/client";
+import type { Case, Department, RoleName } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { executeTransition } from "@/server/state-machine/executor";
 import type { TransitionActor } from "@/server/state-machine/types";
@@ -143,9 +143,22 @@ export type InProgressOverviewRow = ProgressSummary & {
  * summary in one call, rather than the N+1 requests listing cases
  * (M05's GET /api/cases?state=) then fetching each one's log
  * separately would take. */
-export async function listInProgressOverview(): Promise<InProgressOverviewRow[]> {
+/**
+ * `departments`, when given, restricts this to only those departments'
+ * cases — the same department-scoping every other Focal/HoD-facing
+ * list route now applies (`allowedDepartmentsFor()`,
+ * `src/server/authz/department-scope.ts`); `undefined`/omitted means
+ * unfiltered, for DEAN/ADMIN callers and any pre-existing caller that
+ * predates department scoping.
+ */
+export async function listInProgressOverview(
+  departments?: readonly Department[],
+): Promise<InProgressOverviewRow[]> {
   const cases = await prisma.case.findMany({
-    where: { state: "IN_PROGRESS" },
+    where: {
+      state: "IN_PROGRESS",
+      ...(departments ? { student: { department: { in: [...departments] } } } : {}),
+    },
     select: { id: true, studentId: true, plannedStart: true, plannedEnd: true },
     orderBy: { createdAt: "asc" },
   });

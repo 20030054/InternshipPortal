@@ -5,6 +5,7 @@ import type { AdminUserRow } from "@/server/dashboards/admin-view";
 import { DataTable } from "@/components/data-table";
 import { Badge } from "@/components/ui/badge";
 import { ActionForm } from "@/components/action-form";
+import { EditDepartmentsForm } from "@/components/admin/edit-departments-form";
 
 /**
  * `"use client"` from the very first line, deliberately — this table's
@@ -36,6 +37,19 @@ const columns: ColumnDef<AdminUserRow, unknown>[] = [
         ))}
       </div>
     ),
+  },
+  {
+    id: "departments",
+    header: "Departments (D-127)",
+    cell: ({ row }) =>
+      row.original.roles.includes("FOCAL") || row.original.roles.includes("HOD") ? (
+        <EditDepartmentsForm
+          userId={row.original.id}
+          currentDepartments={row.original.departments}
+        />
+      ) : (
+        <span className="text-xs text-muted">n/a</span>
+      ),
   },
   {
     accessorKey: "disabledAt",

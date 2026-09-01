@@ -1,4 +1,4 @@
-import type { CaseState } from "@prisma/client";
+import type { CaseState, Department } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { mapWithConcurrency, sendNotification } from "@/server/notifications/service";
 import { DEADLINE_MISSED_TEMPLATE } from "@/server/notifications/templates";
@@ -50,7 +50,14 @@ export type DeadlineMissedRow = {
  * semester with no deadline configured (OQ-01), means nothing can ever
  * be flagged — never a guess at a deadline nobody set.
  */
-export async function findDeadlineMissedCases(now: Date = new Date()): Promise<DeadlineMissedRow[]> {
+/** `departments`, when given, restricts this to only those departments'
+ * cases — used by `hod-view.ts`'s per-viewer dashboard read, never by
+ * `runDeadlineSweep()` below, which stays system-wide unfiltered (a
+ * background sweep isn't scoped to any one viewer's assignments). */
+export async function findDeadlineMissedCases(
+  now: Date = new Date(),
+  departments?: readonly Department[],
+): Promise<DeadlineMissedRow[]> {
   const openSemester = await prisma.semester.findFirst({
     where: { status: "OPEN" },
     select: { id: true, documentDeadline: true },
@@ -60,7 +67,10 @@ export async function findDeadlineMissedCases(now: Date = new Date()): Promise<D
   }
 
   const cases = await prisma.case.findMany({
-    where: { state: { in: [...PRE_VERIFICATION_STATES] } },
+    where: {
+      state: { in: [...PRE_VERIFICATION_STATES] },
+      ...(departments ? { student: { department: { in: [...departments] } } } : {}),
+    },
     select: {
       id: true,
       student: { select: { user: { select: { email: true, fullName: true } } } },

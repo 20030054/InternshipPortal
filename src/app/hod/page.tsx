@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentIdentity } from "@/server/auth/current-identity";
 import { requireCapability } from "@/server/authz/require-capability";
+import { allowedDepartmentsFor } from "@/server/authz/department-scope";
 import { getHodDashboard } from "@/server/dashboards/hod-view";
 import { DepartmentDashboard } from "@/components/department-dashboard";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,8 @@ export default async function HodDashboardPage() {
     redirect("/login");
   }
 
-  const dashboard = await getHodDashboard();
+  const departments = await allowedDepartmentsFor(identity);
+  const dashboard = await getHodDashboard(departments ?? undefined);
 
   return (
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col gap-8 px-6 py-10">
