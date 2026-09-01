@@ -2660,3 +2660,259 @@ green (`pnpm test` 242/242; `pnpm test:integration` 376/376).
 
 See `docs/OPEN_QUESTIONS.md` OQ-01, now resolved, and `docs/RUNBOOK.md`
 §8 for the operator-facing `curl` example.
+
+---
+
+### D-120 — 2026-09-01 — Eight open questions answered by the user, no code change needed
+
+**Decision:** OQ-02, OQ-03, OQ-04, OQ-06, OQ-08, OQ-09, OQ-10, OQ-13
+all resolved with real answers from the user. In every one of these
+eight, the answer confirms a restrictive default this codebase had
+already built as its interim behaviour — RESTART_CAP=1, hidden
+evaluation comments, 8-semester graduation boundary, SCIT-only
+tenancy, CSV-only roster import, document-inspection-sufficient
+completion verification, and waiver/pass already being visually
+distinct everywhere a case's outcome is shown. The one exception is
+OQ-04 (Dean = Prof. Dr. Shafat Bazaz), which names a real person but
+doesn't create their account — that's a genuine deployment action
+(a real BNU email is needed for `createStaffUser()`), not something
+resolvable from inside this codebase.
+
+**Why no code changed:** every one of these questions was already
+answered the "most restrictive reading" way per `MASTER_PROMPT.md`
+§12's own instruction, specifically so that a real answer arriving
+later would either confirm the existing behaviour (as happened here)
+or require a small, additive change (had any answer gone the other
+way) — never a rewrite. Confirming a default doesn't change the
+system's behaviour, only its epistemic status: these eight are no
+longer "restrictive guesses awaiting a real answer," they're real,
+confirmed policy.
+
+See `docs/OPEN_QUESTIONS.md` for the full reasoning behind each.
+
+---
+
+### D-121 — 2026-09-01 — OQ-14 answered: Lahore/Pakistan public holidays, Admin-managed
+
+**Decision:** New `PublicHoliday` model (`public_holidays` table,
+`date` unique). `src/server/roster/holidays.ts` — `addHoliday()`,
+`removeHoliday()`, `listHolidays()`, `listHolidayDateStrings()`.
+`workingDaysElapsed()`/`isFocalSlaBreached()`
+(`src/server/sla/focal-sla.ts`) gain an optional `ReadonlySet<string>`
+holiday parameter (`YYYY-MM-DD` strings), defaulting to an empty set —
+every existing caller and test that doesn't pass one reproduces the
+exact prior behaviour (Sat/Sun only). The function itself stays pure,
+no I/O — same reasoning as `computeEligibility()` taking its semester
+list as a parameter — with the three real callers
+(`focal-queue.ts`, `sla/service.ts`'s sweep and digest) each fetching
+the set once, outside their per-case loops. Admin UI: a new "Holidays"
+section on `/admin`, add/remove, gated by `users.manage` (the same
+capability every other admin-config route already reuses, not a new
+narrow one). Seeded with Pakistan's fixed civil-calendar public
+holidays (Kashmir Day, Pakistan Day, Labour Day, Independence Day,
+Quaid-e-Azam Day) across 2025-2028, via idempotent `upsert` on `date`.
+
+**Why not hardcode the whole calendar:** Pakistan's public holidays
+include lunar Islamic dates (Eid-ul-Fitr, Eid-ul-Adha, Eid Milad-un-
+Nabi, Ashura) that shift every year against the Gregorian calendar and
+aren't computable in advance — a hardcoded table would either omit
+them (wrong) or need a moon-sighting algorithm this codebase has no
+business implementing. An Admin-managed table handles both cases
+uniformly: fixed dates seeded once as a starting point, lunar dates
+added by whoever runs the deployment once each year's dates are
+actually announced. `POST` for both add and remove (not a REST
+`DELETE`) — the only routes in this codebase that would have used one;
+every mutating route elsewhere is POST-shaped, matched by `ActionForm`'s
+own POST-only `fetch()`.
+
+Verified: 4 new unit tests (`tests/unit/focal-sla.test.ts`) proving the
+holiday-aware math directly (a weekday holiday reduces elapsed working
+days; a holiday landing on a weekend double-counts as nothing extra;
+an empty set reproduces the pre-OQ-14 behaviour exactly; a holiday can
+pull an already-breached case back under threshold) plus one
+integration test proving the *real*, DB-backed `runFocalSlaSweep()`
+picks up a configured holiday and changes its actual outcome, not just
+the pure function in isolation (`BR27_focal_sla_escalation.test.ts`).
+5 new integration tests for the admin routes themselves
+(`M15_admin_holidays.test.ts`): add/list/remove, duplicate-date 409,
+non-existent-id 404, non-Admin 403.
+
+---
+
+### D-122 — 2026-09-01 — OQ-05 answered: Admin-generated student passwords, distributed via a reviewable sheet + email
+
+**Decision:** `importRoster()` (`src/server/roster/csv-import.ts`)
+generates a real, random password (`generateStudentPassword()`,
+`node:crypto`'s `randomBytes`, ~93 bits of entropy from a
+transcription-safe 56-character set) for every user row that has no
+`passwordHash` yet — a genuinely new login, not "this row happened to
+create a new `Student`" (re-importing a corrected file for an
+already-provisioned student never touches their real password).
+`ImportResult` carries these back as `newCredentials: {email,
+fullName, password}[]`, plaintext, once, in that response only.
+`/admin`'s roster section shows them in a table with a "Download CSV"
+button (pure client-side blob, never touches the server again) and
+"Send" / "Send to all" buttons, which round-trip the same plaintext
+passwords to a new route, `POST /api/admin/roster/send-credentials`,
+that emails each student their actual email + password
+(`studentCredentialsEmail()`) via a per-recipient try/catch so one
+unreachable address can't fail the whole batch silently.
+
+**Why not the staff-account pattern (a set-your-own-password link):**
+`staffWelcomeEmail()` never puts a password in an email at all — it's
+categorically safer. The user's answer for students describes a
+different, more direct mechanism explicitly (a real password on a
+sheet an Admin can review and send), which this honors literally
+rather than silently substituting the safer staff-style flow. The
+email itself still tells the student to change it after first sign-in
+via `/forgot-password`, the one mitigation available without inventing
+a forced-password-change flag nobody asked for.
+
+Verified: `M03_roster_import.test.ts`'s new case proves the generated
+password is real (verifies against the stored Argon2 hash, not just
+present in the response) and that a re-import never regenerates one
+already set. `M15_send_credentials.test.ts` (4 cases): per-recipient
+success, an unreachable relay producing a per-recipient failure rather
+than a 500 for the whole batch, 403 for a non-Admin session, 400 for
+an empty recipient list.
+
+---
+
+### D-123 — 2026-09-01 — OQ-07 answered: annual document archive, file-bytes-only deletion gated on confirmed download
+
+**Decision:** New `DocumentArchive` model + `Document.archiveId`/
+`Document.purgedAt`. Three explicit steps, no automatic trigger
+anywhere:
+1. `POST /api/admin/documents/archive` (`{year}`) — bundles every
+   not-yet-archived, not-yet-purged document whose `createdAt` falls
+   in that year into a new `DocumentArchive` row; 409 if nothing's
+   eligible.
+2. `GET /api/admin/documents/archive/:id/download` — streams a zip
+   (`archiver`'s `ZipArchive`) of the linked documents' files,
+   re-callable as many times as needed since nothing is deleted here.
+3. `POST /api/admin/documents/archive/:id/confirm-purge` — the only
+   actual deletion gate. Deletes each linked document's file from
+   disk and stamps `purgedAt`.
+
+**Why the `Document` row itself is never deleted:** §9's "no document
+is ever deletable" is load-bearing elsewhere — `Verification` rows
+have a real FK to `Document.id`, and BR-11's whole audit trail depends
+on that row still existing. Deleting it (or cascading through
+`Verification`) would silently erase real verification history behind
+a routine retention job — the wrong trade for what the user actually
+asked for (free disk space, not erase the fact that verification
+happened). Only the file *bytes* on disk are removed;
+`Document.checksumSha256`, `type`, `originalFilename`, and every
+`Verification` against it survive forever, unchanged.
+`GET /api/documents/:id/download` (the existing route) now checks
+`purgedAt` first and returns `410 {error: "purged"}` instead of an
+unhandled `ENOENT` from `createReadStream` — a real edge case this
+feature introduces that needed a real answer, not a crash.
+
+**Why a new dependency (`archiver`):** no zip-writing capability
+existed anywhere in this codebase; hand-rolling the ZIP format is not
+something to attempt versus using a well-established library. Note for
+future maintainers: `archiver` v8 dropped its old CommonJS factory-
+function API (`archiver('zip', opts)`) in favor of ES module classes
+— this codebase uses `new ZipArchive(opts)` directly, not the pattern
+shown in a lot of older `archiver` documentation/examples.
+
+Verified (`M15_document_retention.test.ts`): the full lifecycle
+against a real stored file — create, appears in the zip (verified by
+actually unzipping it with `jszip`, a test-only dependency), still
+downloadable through the real `/api/documents/:id/download` route
+before purging, `confirmArchivePurge()` deletes the file and stamps
+`purgedAt` while the row/checksum survive unchanged, and the same
+download route now correctly 410s afterward instead of crashing.
+`EmptyArchiveError` for a year with nothing eligible (409, not a
+useless archive row).
+
+See `docs/OPEN_QUESTIONS.md` OQ-07, now resolved, and
+`docs/RUNBOOK.md` §13 for the operator flow.
+
+---
+
+### D-124 — 2026-09-01 — Admin can reactivate a deactivated staff account
+
+**Decision:** `reactivateUser()` (`src/server/users/service.ts`),
+`POST /api/admin/users/:id/reactivate`, and a "Reactivate" button on
+`/admin`'s staff table (replacing the deactivate button once an
+account is disabled). Clears `disabledAt`; nothing else — the same
+single column `deactivateUser()` already relied on as its whole
+mechanism, in reverse.
+
+**Why:** part of the user's "Admin can hold anyone's account just a
+click of the button" request — deactivation already existed (M14),
+undoing it didn't. A reactivated account needs a fresh sign-in (no
+session survives being disabled to resume), which needed no extra
+handling — `authorizeCredentials()`/`loadIdentity()` both already key
+purely off `disabledAt` being non-null.
+
+Verified (`M14_admin_user_management.test.ts`, 3 new cases): a
+deactivated account's real password stops working, reactivating
+restores it (same password, no reset needed), 404 for a non-existent
+user, 403 for a non-Admin caller.
+
+---
+
+### D-125 — 2026-09-01 — Admin activity log: merges audit_events + case_events, nothing new to write
+
+**Decision:** `listActivityLog()` (`src/server/admin/activity-log.ts`),
+`GET /api/admin/activity-log?actorEmail=`, and a new page,
+`/admin/activity-log` (linked from `/admin`, not folded into it — a
+read-only report, not another form to configure). Merges `audit_events`
+(M01) and `case_events` (M04) into one feed, sorted newest-first,
+optionally filtered to one actor by email (resolved to a userId
+internally; a real email with no activity returns an empty list, an
+email that doesn't exist at all does too — neither is an error).
+
+**Why merge two tables instead of building one new log:** both are
+already real, append-only (BR-26, enforced at the database privilege
+level — `REVOKE UPDATE, DELETE`) records of actual activity —
+`case_events` is every state transition and who performed it,
+`audit_events` is everything else this codebase already logs (waiver
+initiation, denied transitions, document downloads/denials,
+supervisor token issuance, auto-enrollment, restarts). Building a
+third table would either duplicate what these already record or need
+every existing write site updated to also write to it — reading what
+already exists is strictly less code and can't drift out of sync with
+the real events.
+
+Verified (`M15_activity_log.test.ts`): genesis-inserts one row into
+each table for the same actor, confirms the merge sorts correctly
+(newest first) and each entry's `kind`/`description` reads right; a
+real actor with zero activity and a nonexistent email both return an
+empty list cleanly.
+
+---
+
+### D-126 — 2026-09-01 — Admin analytics dashboard: reuses HoD's own real data, no new charting dependency
+
+**Decision:** `getAdminAnalytics()` (`src/server/admin/analytics.ts`)
+combines `getHodDashboard()`'s already-real `countsByState` (the case
+funnel) with two new Admin-specific aggregates — SLA compliance
+(pending Focal-action cases, breached vs within, reusing BR-27's own
+`workingDaysElapsed()`/holiday calendar) and a roster summary (total
+students, total cases ever opened, the current open semester). New
+page `/admin/analytics`, linked from `/admin`, renders these as plain
+CSS-width bar visuals — no charting library added; hand-rolling a
+`width: N%` div is trivial where hand-rolling a ZIP file (D-123) isn't.
+`GET /api/admin/analytics/export` reuses `buildHodDepartmentWorkbook()`
+verbatim (the same real, tested XLSX HoD's own export already
+produces), gated by `users.manage` instead of `dashboard.view_hod` so
+Admin can pull it without needing the HOD role.
+
+**Why reuse instead of building parallel aggregations:**
+`getHodDashboard()`'s `countsByState` is already real, tested, and
+computed fresh on every call (never a stored snapshot) — recomputing
+the same groupBy a second way would just be a second place for the
+same fact to drift out of sync with the truth. Same reasoning applies
+to the exported workbook.
+
+Verified (`M15_admin_analytics.test.ts`, 4 cases): `countsByState`
+reflects a real just-created case (delta-tolerant, same convention
+`M13_hod_dashboard.test.ts` already established for this shared-total
+reason); `roster.totalStudents` increases by exactly one for one real
+student created between two calls (safe under this suite's own
+`fileParallelism: false` guarantee); the export route returns a real
+`.xlsx` for an Admin and 403s for a non-Admin.

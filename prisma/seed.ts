@@ -236,9 +236,50 @@ export async function main() {
     );
   }
 
+  console.log("[seed] upserting public holidays...");
+  await seedFixedPakistaniHolidays();
+
   console.log(
     `[seed] done: ${ROLE_NAMES.length} roles, ${SEMESTERS.length} semesters, ${STAFF.length} staff users, ${STUDENTS.length} students`,
   );
+}
+
+/**
+ * OQ-14, answered (D-121): a starting point only, not the whole
+ * calendar — these are Pakistan's fixed civil-calendar public
+ * holidays, gazetted on the same date every year. Lunar Islamic
+ * holidays (Eid-ul-Fitr, Eid-ul-Adha, Eid Milad-un-Nabi, Ashura) are
+ * deliberately *not* seeded here: they shift every year against the
+ * Gregorian calendar and can't be computed years in advance, so an
+ * Admin has to add each one via `/admin` once it's actually announced
+ * (typically weeks ahead by the government's own moon-sighting
+ * process). `upsert` on `date` (the table's unique column) makes this
+ * safe to re-run on every seed invocation, same as every other upsert
+ * in this file.
+ */
+async function seedFixedPakistaniHolidays(): Promise<void> {
+  const FIXED_HOLIDAYS: { month: number; day: number; name: string }[] = [
+    { month: 2, day: 5, name: "Kashmir Solidarity Day" },
+    { month: 3, day: 23, name: "Pakistan Day" },
+    { month: 5, day: 1, name: "Labour Day" },
+    { month: 8, day: 14, name: "Independence Day" },
+    { month: 12, day: 25, name: "Quaid-e-Azam Day" },
+  ];
+  // A handful of years' runway — an Admin can always add more (or
+  // remove a wrongly-seeded one) from /admin; re-running the seed
+  // never duplicates a date already present.
+  const YEARS = [2025, 2026, 2027, 2028];
+
+  for (const year of YEARS) {
+    for (const h of FIXED_HOLIDAYS) {
+      const date = new Date(Date.UTC(year, h.month - 1, h.day));
+      await prisma.publicHoliday.upsert({
+        where: { date },
+        update: {},
+        create: { date, name: h.name },
+      });
+    }
+  }
 }
 
 // Only run automatically when executed directly (`tsx prisma/seed.ts` /

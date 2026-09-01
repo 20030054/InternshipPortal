@@ -4,6 +4,7 @@ import { prisma } from "@/server/db/client";
 import { authorizeCredentials } from "@/server/auth/authorize-credentials";
 import { POST as createUserRoute } from "@/app/api/admin/users/route";
 import { POST as deactivateRoute } from "@/app/api/admin/users/[id]/deactivate/route";
+import { POST as reactivateRoute } from "@/app/api/admin/users/[id]/reactivate/route";
 import { POST as confirmResetRoute } from "@/app/api/auth/password-reset/confirm/route";
 import { sessionState } from "./setup";
 import { assignRole, createUserFixture } from "./support/prisma-fixtures";
@@ -212,5 +213,55 @@ describe("M14: admin user management (users.manage)", () => {
 
     const stillEnabled = await prisma.user.findUniqueOrThrow({ where: { id: target.id } });
     expect(stillEnabled.disabledAt).toBeNull();
+  });
+
+  it("reactivating a deactivated user restores login with the same password", async () => {
+    await adminSession();
+    const email = `reactivate-me-${crypto.randomUUID()}@example.scit.test`;
+    await createUserRoute(jsonRequest({ email, roles: ["FOCAL"] }));
+    const token = extractToken(sentEmails[sentEmails.length - 1]!.text);
+    await confirmResetRoute(jsonRequest({ token, newPassword: "correct-password-123" }));
+    const user = await prisma.user.findUniqueOrThrow({ where: { email } });
+
+    await deactivateRoute(new Request("http://test", { method: "POST" }), {
+      params: Promise.resolve({ id: user.id }),
+    });
+    expect(
+      await authorizeCredentials({ email, password: "correct-password-123" }, undefined),
+    ).toBeNull();
+
+    const reactivateResponse = await reactivateRoute(new Request("http://test", { method: "POST" }), {
+      params: Promise.resolve({ id: user.id }),
+    });
+    expect(reactivateResponse.status).toBe(200);
+
+    const refreshed = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(refreshed.disabledAt).toBeNull();
+
+    const loginAttempt = await authorizeCredentials(
+      { email, password: "correct-password-123" },
+      undefined,
+    );
+    expect(loginAttempt).not.toBeNull();
+  });
+
+  it("reactivating a non-existent user id gets 404", async () => {
+    await adminSession();
+    const response = await reactivateRoute(new Request("http://test", { method: "POST" }), {
+      params: Promise.resolve({ id: crypto.randomUUID() }),
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it("a non-ADMIN caller cannot reactivate anyone (403)", async () => {
+    const target = await createUserFixture();
+    const focal = await createUserFixture();
+    await assignRole(focal.id, "FOCAL");
+    sessionState.current = { user: { id: focal.id } };
+
+    const response = await reactivateRoute(new Request("http://test", { method: "POST" }), {
+      params: Promise.resolve({ id: target.id }),
+    });
+    expect(response.status).toBe(403);
   });
 });

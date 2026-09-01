@@ -54,6 +54,7 @@ export async function GET(
         caseId: true,
         storageKey: true,
         originalFilename: true,
+        purgedAt: true,
         case: { select: { studentId: true } },
       },
     });
@@ -78,6 +79,17 @@ export async function GET(
         });
         return NextResponse.json({ error: "not_found" }, { status: 404 });
       }
+    }
+
+    // OQ-07, answered (D-123): the row survives forever (§9), but the
+    // file bytes can be purged after a confirmed year-end archive —
+    // the real, honest answer here is "this file is no longer
+    // available," not an unhandled ENOENT from createReadStream below.
+    if (document.purgedAt) {
+      return NextResponse.json(
+        { error: "purged", purgedAt: document.purgedAt },
+        { status: 410 },
+      );
     }
 
     await prisma.auditEvent.create({

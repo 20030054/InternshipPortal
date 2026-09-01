@@ -9,6 +9,7 @@ import { issueSupervisorToken, submitEvaluation } from "@/server/supervisor/serv
 import { advanceToVerificationIfReady } from "@/server/grading/service";
 import { validPdfFile } from "./support/files";
 import { prisma } from "@/server/db/client";
+import { addHoliday, removeHoliday } from "@/server/roster/holidays";
 
 vi.mock("@/server/mail/transport", () => ({
   sendMail: vi.fn(async () => undefined),
@@ -88,6 +89,56 @@ describe("BR-27: Focal Person SLA escalation", () => {
 
     const result = await runFocalSlaSweep(travelledNow);
     expect(result.caseIds).not.toContain(caseId);
+  });
+
+  it("OQ-14 (D-121): a configured holiday genuinely changes the real sweep's outcome, not just the pure function", async () => {
+    const { caseId } = await createOfferUnderReviewCase(9130);
+    const enteredAt = await entryTimestamp(caseId, "OFFER_UNDER_REVIEW");
+    // 14 calendar days always contains exactly 2 Saturdays + 2 Sundays
+    // (14 = 2×7, so the count is alignment-independent) -> exactly 10
+    // working days elapsed with no holidays configured, right at
+    // BR-27's >= threshold — the same margin the "escalates exactly
+    // once" test above proves *does* breach with no holidays involved.
+    const travelledNow = new Date(enteredAt.getTime() + 14 * DAY_MS);
+
+    const hod = await createUserFixture();
+    await assignRole(hod.id, "HOD");
+
+    // Mark every day in a full 7-consecutive-day window (days 4-10
+    // after entry) as a holiday — any 7 consecutive calendar days
+    // contain exactly 5 real weekdays regardless of alignment, so this
+    // is guaranteed to exclude 5 more working days without depending
+    // on which day of the week the test happens to run on. The 2
+    // weekend days inside that window get marked too, harmlessly
+    // (already excluded either way — see the "double-counts as
+    // nothing extra" unit test in focal-sla.test.ts).
+    //
+    // `public_holidays` is global, shared-database state, not scoped
+    // to this test or this case — `enteredAt` is a real insertion
+    // timestamp close to actual "now," which lands these dates inside
+    // the same near-term calendar window other SLA-sweep tests
+    // (running against the same shared database, same real "now")
+    // also travel through. Cleaned up in `finally` so this test can't
+    // leak holidays into anything else's SLA math — found live, the
+    // hard way, the first time this ran (it broke two unrelated
+    // tests' breach assertions elsewhere in this same suite run).
+    const holidayIds: string[] = [];
+    try {
+      for (let i = 4; i <= 10; i++) {
+        const holiday = await addHoliday(
+          new Date(enteredAt.getTime() + i * DAY_MS),
+          `test holiday day ${i}`,
+        );
+        holidayIds.push(holiday.id);
+      }
+
+      const result = await runFocalSlaSweep(travelledNow);
+      expect(result.caseIds).not.toContain(caseId);
+    } finally {
+      for (const id of holidayIds) {
+        await removeHoliday(id);
+      }
+    }
   });
 
   it("PENDING_VERIFICATION is also a Focal-pending state that can breach", async () => {

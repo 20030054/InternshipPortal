@@ -105,3 +105,18 @@ export async function deactivateUser(userId: string): Promise<void> {
     data: { disabledAt: new Date() },
   });
 }
+
+/**
+ * The companion `deactivateUser()` never had — clearing `disabledAt`
+ * is the whole mechanism in reverse: `authorizeCredentials()` and
+ * `loadIdentity()` both key off it being non-null, so setting it back
+ * to null on its own is sufficient. Doesn't touch `tokenVersion` or
+ * anything else — a reactivated account still needs a fresh sign-in
+ * (no session survived being disabled to resume).
+ */
+export async function reactivateUser(userId: string): Promise<void> {
+  await prisma.user.update({
+    where: { id: userId },
+    data: { disabledAt: null },
+  });
+}

@@ -21,3 +21,16 @@ export const createSemesterSchema = z.object({
 export const updateSemesterDeadlineSchema = z.object({
   documentDeadline: z.string().date().nullable().optional(),
 });
+
+/**
+ * OQ-05, answered (D-122): the credentials sheet round-trips back to
+ * the server here — the raw passwords exist only transiently, in
+ * `importRoster()`'s one-time response and then in whatever the Admin
+ * submits back to actually send them; nothing persists them in
+ * plaintext at any point.
+ */
+export const sendCredentialsSchema = z.object({
+  recipients: z
+    .array(z.object({ email: z.string().email(), password: z.string().min(1) }))
+    .min(1),
+});

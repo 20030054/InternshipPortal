@@ -1,6 +1,8 @@
 import { parse } from "csv-parse/sync";
 import { prisma } from "@/server/db/client";
 import type { Prisma, SemesterType } from "@prisma/client";
+import { generateStudentPassword } from "./credentials";
+import { hashPassword } from "@/server/auth/password";
 
 /**
  * BR-01/OQ-06: roster import, CSV only for now (the restrictive default
@@ -121,12 +123,23 @@ export function parseRosterCsv(content: string): {
   return { rows, errors };
 }
 
+export type NewCredential = { email: string; fullName: string | null; password: string };
+
 export type ImportResult = {
   totalRows: number;
   createdCount: number;
   updatedCount: number;
   errorCount: number;
   errors: RowError[];
+  /**
+   * OQ-05, answered (D-122): one entry per user who genuinely had no
+   * password before this import — a real, random password, plaintext
+   * here *only* in this one-time response (never persisted anywhere;
+   * the DB only ever stores the Argon2 hash). Re-importing a
+   * corrected file for an existing student with an existing password
+   * never appears here again — that password is left untouched.
+   */
+  newCredentials: NewCredential[];
 };
 
 /**
@@ -144,6 +157,7 @@ export async function importRoster(
   const errors: RowError[] = [...parseErrors];
   let createdCount = 0;
   let updatedCount = 0;
+  const newCredentials: NewCredential[] = [];
 
   const studentRole = await prisma.role.findUnique({
     where: { name: "STUDENT" },
@@ -180,6 +194,20 @@ export async function importRoster(
         update: { fullName: row.fullName ?? undefined },
         create: { email: row.email, fullName: row.fullName },
       });
+
+      // OQ-05, answered (D-122): a genuinely new login-capable
+      // account gets a real, random password right here — never a
+      // re-import of an existing student overwriting a password
+      // that's already in real use. `passwordHash` being null is the
+      // actual test, not "this row created a new Student" (a student
+      // row can be re-imported/corrected while its user row already
+      // has a password from an earlier import).
+      if (user.passwordHash === null) {
+        const rawPassword = generateStudentPassword();
+        const passwordHash = await hashPassword(rawPassword);
+        await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+        newCredentials.push({ email: row.email, fullName: row.fullName, password: rawPassword });
+      }
 
       await prisma.student.upsert({
         where: { registrationNumber: row.registrationNumber },
@@ -225,6 +253,7 @@ export async function importRoster(
     updatedCount,
     errorCount: errors.length,
     errors,
+    newCredentials,
   };
 
   await prisma.rosterImport.create({

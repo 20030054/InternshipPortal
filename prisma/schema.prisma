@@ -78,6 +78,7 @@ model User {
   roleAssignments      UserRole[]
   passwordResetTokens  PasswordResetToken[]
   rosterImports        RosterImport[]
+  documentArchives     DocumentArchive[]
 
   @@map("users")
 }
@@ -195,17 +196,36 @@ model Semester {
   status           SemesterStatus @default(UPCOMING)
   startsOn         DateTime       @map("starts_on") @db.Date
   endsOn           DateTime       @map("ends_on") @db.Date
-  // TODO(OQ-01): exact per-semester document submission deadline dates are
-  // unanswered. Nullable until an admin sets it per semester; a case
-  // missing deliverables at an unset deadline is never auto-flagged by a
-  // null value — a future deadline-sweep job (M07/M09) must treat null as
-  // "no deadline configured yet", not "no deadline ever".
+  // OQ-01, answered (D-119): Admin-entered per semester, set at
+  // creation and freely editable after (POST .../semesters/:id/
+  // deadline). Nullable until actually set; a case missing
+  // deliverables at an unset deadline is never auto-flagged —
+  // deadline-sweep.ts's BR-05 job treats null as "no deadline
+  // configured yet", not "no deadline ever".
   documentDeadline DateTime?      @map("document_deadline") @db.Date
 
   students Student[]
 
   @@unique([type, year])
   @@map("semesters")
+}
+
+/**
+ * OQ-14, answered (D-121): BR-27's "working days" SLA clock pauses on
+ * these dates in addition to Sat/Sun — Admin-managed rather than
+ * hardcoded, because Pakistan's public holidays include lunar-calendar
+ * Islamic dates (Eid-ul-Fitr, Eid-ul-Adha, etc.) that shift every
+ * year and can't be reliably computed in advance; fixed civil dates
+ * (Independence Day, Pakistan Day, ...) are seeded once but stay
+ * editable the same way.
+ */
+model PublicHoliday {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  date      DateTime @unique @db.Date
+  name      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@map("public_holidays")
 }
 
 /// M03: one row per roster CSV import, so "what happened in Tuesday's
@@ -414,12 +434,47 @@ model Document {
   uploadedBy       String         @map("uploaded_by") @db.Uuid
   createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz
 
-  case          Case           @relation(fields: [caseId], references: [id])
-  uploader      User           @relation("DocumentUploadedBy", fields: [uploadedBy], references: [id])
+  // OQ-07, answered (D-123): the file's *bytes* can be purged once a
+  // year-end archive has been downloaded and confirmed — the row
+  // itself, and every column above, never is (§9's own "no document
+  // is ever deletable" stays true for the metadata/audit trail;
+  // `verifications` keeps pointing at a real row forever, whether or
+  // not the underlying bytes still exist on disk). `archiveId` is set
+  // the moment a document is bundled into an archive (bookkeeping,
+  // not deletion); `purgedAt` is set only once that archive's
+  // download is explicitly confirmed.
+  archiveId String?   @map("archive_id") @db.Uuid
+  purgedAt  DateTime? @map("purged_at") @db.Timestamptz
+
+  case          Case             @relation(fields: [caseId], references: [id])
+  uploader      User             @relation("DocumentUploadedBy", fields: [uploadedBy], references: [id])
   verifications Verification[]
+  archive       DocumentArchive? @relation(fields: [archiveId], references: [id])
 
   @@index([caseId])
+  @@index([archiveId])
   @@map("documents")
+}
+
+/**
+ * OQ-07, answered (D-123): one row per year-end retention archive an
+ * Admin has generated — `docs/RUNBOOK.md` §10 for the operator flow.
+ * `confirmedAt` is the actual gate on purging: file bytes are only
+ * ever deleted from disk once an Admin has explicitly confirmed they
+ * downloaded and saved this archive, never automatically.
+ */
+model DocumentArchive {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  year          Int
+  requestedBy   String    @map("requested_by") @db.Uuid
+  documentCount Int       @map("document_count")
+  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  requester User       @relation(fields: [requestedBy], references: [id])
+  documents Document[]
+
+  @@map("document_archives")
 }
 
 enum VerificationMethod {

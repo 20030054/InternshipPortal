@@ -51,7 +51,13 @@ const columns: ColumnDef<AdminUserRow, unknown>[] = [
     id: "actions",
     header: "",
     cell: ({ row }) =>
-      row.original.disabledAt ? null : (
+      row.original.disabledAt ? (
+        <ActionForm
+          action={`/api/admin/users/${row.original.id}/reactivate`}
+          submitLabel="Reactivate"
+          confirmMessage={`Reactivate ${row.original.email}? They'll be able to sign in again.`}
+        />
+      ) : (
         <ActionForm
           action={`/api/admin/users/${row.original.id}/deactivate`}
           submitLabel="Deactivate"

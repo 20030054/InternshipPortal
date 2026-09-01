@@ -1,6 +1,7 @@
 import type { CaseState } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { workingDaysElapsed } from "@/server/sla/focal-sla";
+import { listHolidayDateStrings } from "@/server/roster/holidays";
 
 function focalSlaDays(): number {
   return Number(process.env.SLA_DAYS ?? 10);
@@ -32,6 +33,7 @@ export type FocalQueueRow = {
  */
 export async function getFocalWorkQueue(now: Date = new Date()): Promise<FocalQueueRow[]> {
   const slaDays = focalSlaDays();
+  const holidays = await listHolidayDateStrings();
   const cases = await prisma.case.findMany({
     where: { state: { in: [...FOCAL_PENDING_STATES] } },
     select: {
@@ -49,7 +51,7 @@ export async function getFocalWorkQueue(now: Date = new Date()): Promise<FocalQu
       orderBy: { createdAt: "desc" },
     });
     const enteredStateAt = entryEvent?.createdAt ?? now;
-    const workingDaysWaiting = workingDaysElapsed(enteredStateAt, now);
+    const workingDaysWaiting = workingDaysElapsed(enteredStateAt, now, holidays);
     rows.push({
       caseId: kase.id,
       studentName: kase.student.user.fullName ?? kase.student.user.email,

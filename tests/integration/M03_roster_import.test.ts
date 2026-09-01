@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { POST } from "@/app/api/admin/roster/import/route";
 import { prisma } from "@/server/db/client";
+import { verifyPassword } from "@/server/auth/password";
 import { sessionState } from "./setup";
 import {
   assignRole,
@@ -86,6 +87,45 @@ describe("M03: POST /api/admin/roster/import", () => {
     expect(imports).toHaveLength(2);
     expect(imports[0]?.filename).toBe("roster-1.csv");
     expect(imports[1]?.filename).toBe("roster-2.csv");
+  });
+
+  it("OQ-05, answered (D-122): generates a real, working password for a newly-created student, never regenerates on re-import", async () => {
+    const admin = await createUserFixture();
+    await assignRole(admin.id, "ADMIN");
+    sessionState.current = { user: { id: admin.id } };
+
+    const semester = await createSemesterFixture({ type: "SPRING", year: 9002 });
+    const csv = [
+      "registrationNumber,email,programme,admissionSemesterType,admissionSemesterYear",
+      `M03CRED-001,m03cred001@example.test,BS Computer Science,SPRING,${semester.year}`,
+    ].join("\n");
+
+    const first = await POST(csvRequest(csv, "roster-cred-1.csv"));
+    const firstBody = await first.json();
+    expect(firstBody.newCredentials).toHaveLength(1);
+    const credential = firstBody.newCredentials[0];
+    expect(credential.email).toBe("m03cred001@example.test");
+    expect(credential.password.length).toBeGreaterThanOrEqual(12);
+
+    // The generated password is real -- it actually verifies against
+    // the hash that got stored, not just present in the response.
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email: "m03cred001@example.test" },
+    });
+    expect(user.passwordHash).not.toBeNull();
+    expect(await verifyPassword(user.passwordHash!, credential.password)).toBe(true);
+
+    // Re-importing the same row (now with a real password already set)
+    // never regenerates -- newCredentials is empty, the password is
+    // untouched.
+    const second = await POST(csvRequest(csv, "roster-cred-2.csv"));
+    const secondBody = await second.json();
+    expect(secondBody.newCredentials).toHaveLength(0);
+
+    const userAfterReimport = await prisma.user.findUniqueOrThrow({
+      where: { email: "m03cred001@example.test" },
+    });
+    expect(userAfterReimport.passwordHash).toBe(user.passwordHash);
   });
 
   it("reports a row referencing an unconfigured semester as a row error, not a thrown exception", async () => {

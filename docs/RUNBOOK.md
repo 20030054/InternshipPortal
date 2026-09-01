@@ -476,3 +476,38 @@ sh -c 'du -h /backups/*.dump'` and compare against the previous day's
 size — a dump an order of magnitude smaller than usual usually means
 `DATABASE_MIGRATION_ROLE` pointed at the wrong database, not that data
 actually shrank.
+
+## 13. Year-end document retention (OQ-07)
+
+Three explicit steps — nothing here runs on a schedule, and each step
+is safe to repeat if it's interrupted (see `docs/DECISIONS.md` D-123
+for the full reasoning).
+
+**Step 1 — create the archive** (bundles every not-yet-archived
+document from that calendar year; `409 nothing_to_archive` if there's
+nothing eligible, e.g. the year's already been archived):
+```
+curl -X POST https://<APP_URL>/api/admin/documents/archive \
+  -H "Content-Type: application/json" -b "<admin's session cookie>" \
+  -d '{"year": 2025}'
+```
+
+**Step 2 — download and actually save the zip** (re-downloadable as
+many times as needed; nothing is deleted by this step):
+```
+curl -O -J https://<APP_URL>/api/admin/documents/archive/<archive-id>/download \
+  -b "<admin's session cookie>"
+```
+
+**Step 3 — confirm and purge** (the only step that deletes anything —
+only do this once the zip from step 2 is actually saved somewhere
+safe; deletes the *file bytes* only, the document records and their
+verification history are kept forever):
+```
+curl -X POST https://<APP_URL>/api/admin/documents/archive/<archive-id>/confirm-purge \
+  -b "<admin's session cookie>"
+```
+
+All three are also available from `/admin`'s "Document retention"
+section, which shows step 2 as a Download link and step 3 behind a
+confirmation prompt.

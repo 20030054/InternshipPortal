@@ -1,6 +1,7 @@
 import type { CaseState } from "@prisma/client";
 import { prisma } from "@/server/db/client";
 import { isFocalSlaBreached } from "./focal-sla";
+import { listHolidayDateStrings } from "@/server/roster/holidays";
 import { classifyTokenForReminder } from "@/server/supervisor/reminders";
 import { recordReminderSent } from "@/server/supervisor/service";
 import {
@@ -45,6 +46,7 @@ export type FocalSlaSweepResult = { escalated: number; caseIds: string[] };
  */
 export async function runFocalSlaSweep(now: Date = new Date()): Promise<FocalSlaSweepResult> {
   const slaDays = focalSlaDays();
+  const holidays = await listHolidayDateStrings();
   const pendingCases = await prisma.case.findMany({
     where: { state: { in: [...FOCAL_PENDING_STATES] } },
     select: { id: true, state: true },
@@ -59,7 +61,7 @@ export async function runFocalSlaSweep(now: Date = new Date()): Promise<FocalSla
     });
     if (!mostRecentEntry) continue; // defensive; every real case has one
 
-    if (!isFocalSlaBreached(mostRecentEntry.createdAt, now, slaDays)) continue;
+    if (!isFocalSlaBreached(mostRecentEntry.createdAt, now, slaDays, holidays)) continue;
 
     const alreadyEscalated = await prisma.notification.findFirst({
       where: {
@@ -166,6 +168,7 @@ export type HodDigestResult = { sent: boolean; recipients: number };
  */
 export async function runHodDigest(now: Date = new Date()): Promise<HodDigestResult> {
   const slaDays = focalSlaDays();
+  const holidays = await listHolidayDateStrings();
   const breachedCases = await prisma.case.findMany({
     where: { state: { in: [...FOCAL_PENDING_STATES] } },
     select: { id: true, state: true },
@@ -177,7 +180,7 @@ export async function runHodDigest(now: Date = new Date()): Promise<HodDigestRes
       where: { caseId: kase.id, toState: kase.state },
       orderBy: { createdAt: "desc" },
     });
-    if (mostRecentEntry && isFocalSlaBreached(mostRecentEntry.createdAt, now, slaDays)) {
+    if (mostRecentEntry && isFocalSlaBreached(mostRecentEntry.createdAt, now, slaDays, holidays)) {
       breachedIds.push(kase.id);
     }
   }

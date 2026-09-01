@@ -5,7 +5,7 @@
 complete.
 **Last session:** 2026-08-31
 **Build status:** green. `pnpm lint`, `pnpm exec tsc --noEmit`, `next
-build`, `pnpm test` [242/242], `pnpm test:integration` [370/370] all
+build`, `pnpm test` [246/246], `pnpm test:integration` [399/399] all
 pass, confirmed on multiple consecutive freshly-recreated temp Postgres/
 Redis runs. `pnpm audit` reports zero known vulnerabilities. A full,
 real `docker compose up --build` from a clean volume state (all 7
@@ -242,6 +242,57 @@ the database reflects each step. `pnpm test` 242/242, `pnpm
 test:integration` 376/376 (6 new cases). See D-119; `docs/OPEN_
 QUESTIONS.md` OQ-01 is now the third resolved item, after OQ-12 and
 OQ-15.
+
+**Seventh pass, same session — the user answered every remaining open
+question and asked for a fully-configurable admin dashboard.** Eight
+answers (OQ-02/03/04/06/08/09/10/13) confirmed defaults already built
+were the real policy — no code change beyond documenting them (D-120).
+Three needed real work:
+
+- **OQ-14** (Lahore/Pakistan holidays): a new Admin-managed
+  `public_holidays` table feeds BR-27's SLA clock as an optional
+  parameter (`workingDaysElapsed()` stays pure, no I/O) — fixed
+  civil-calendar dates seeded, lunar Islamic dates left for an Admin
+  to add each year once announced (they can't be computed). D-121.
+- **OQ-05** (student credentials): roster import now generates a
+  real, random password for every genuinely new student account;
+  `/admin` shows a reviewable, downloadable sheet with a "Send to
+  all" action that emails each student their actual login directly —
+  a deliberately different, more direct mechanism than the
+  set-your-own-password link staff accounts get, honoring the user's
+  described workflow literally. D-122.
+- **OQ-07** (document retention): a three-step, nothing-automatic
+  annual archive — create, download (re-downloadable, nothing
+  deleted), confirm-and-purge (the only real deletion gate). Purges
+  file *bytes* only; the `Document` row and its full verification
+  history are kept forever, since §9's "no document is ever
+  deletable" is load-bearing elsewhere (BR-11's audit trail). Needed
+  a new dependency, `archiver`, for real ZIP generation. D-123.
+
+Then the "fully configurable admin dashboard" ask: reactivate a
+deactivated account (D-124, the companion `deactivateUser()` never
+had), an activity log merging `audit_events`/`case_events` into one
+feed (D-125), and an analytics dashboard reusing HoD's own real
+`countsByState` plus new SLA-compliance and roster summaries, rendered
+as dependency-free CSS bar visuals with an XLSX export (D-126).
+
+All of it verified against real, fresh temp databases (a proper CI-
+style Postgres+Redis pair stood up for this pass, not the live demo
+stack) — every batch's own new tests plus the full suite re-run clean
+afterward. Two real test-authoring lessons learned live, both fixed
+before landing: a holiday-calendar test that polluted two *other*
+files' SLA assertions by inserting global holiday rows into the
+shared, real-time calendar window every SLA test operates in (fixed
+with explicit `finally`-block cleanup); and a document-retention test
+that called the real, intentionally-unscoped `createDocumentArchive()`
+sweep directly, which pulled in an unrelated file's dangling document
+reference and turned a zip-generation test into an ENOENT hang (fixed
+by hand-building an isolated single-document archive for the parts of
+the test that touch the filesystem, testing the sweep itself
+separately and narrowly). `pnpm test` 246/246, `pnpm test:integration`
+392/392 clean on the final fresh run, plus 4 more cases added after
+that (analytics) — see `docs/DECISIONS.md` D-120 through D-126 for the
+full reasoning behind each.
 
 ### M14 — Hardening, backup and handover
 
